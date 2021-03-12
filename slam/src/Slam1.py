@@ -561,8 +561,8 @@ class Slam_Class(object):
         self.marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
 
         # Solo pueden estar conectado 1 de estos dos siguientes
-        self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
-        #self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.state_estimation_callback)
+        #self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
+        self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.state_estimation_callback)
 
         # Solo pueden estar conectados odom, o imu y gps
         #self.odom_sub = rospy.Subscriber('/odometry_pub', WheelSpeedsStamped, self.odom_callback)

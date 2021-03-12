@@ -6,7 +6,7 @@ import math
 import matplotlib.pyplot as plt
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Bool
-from geometry_msgs.msg import Vector3Stamped
+from geometry_msgs.msg import Vector3Stamped,PoseStamped
 from nav_msgs.msg import Path
 import scipy.interpolate as scipy_interpolate
 from eufs_msgs.msg import CarState
@@ -172,6 +172,7 @@ class State(object):
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
         self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
+        #self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
 
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
@@ -184,6 +185,9 @@ class State(object):
 
     def sub_callback(self, msg):
         self.stanley_class.update_car_position(msg.pose.pose)
+
+    def sub_callback2(self, msg):
+        self.stanley_class.update_car_position(msg.pose)
 
     def callbackpath(self, data):
         self.stanley_class.principal_loop(data)

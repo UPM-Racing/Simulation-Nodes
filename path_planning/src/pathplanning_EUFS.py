@@ -17,7 +17,7 @@ class Path_planning(object):
         self.y = 0.0
         self.yaw = 0.0
         self.DT = 0.0
-        self.THRESHOLD = 6.0
+        self.THRESHOLD = 5.5
         self.cones_x = []
         self.cones_y = []
         self.marker_ests = MarkerArray()
@@ -28,7 +28,7 @@ class Path_planning(object):
         self.degree = 3 #approximate_b_spline_path degree
         self.trayectory_points_x = []
         self.trayectory_points_y = []
-        self.CLEAR_THRESHOLD = 0.2
+        self.CLEAR_THRESHOLD = 0.5
         self.finished_lap = False
         self.REORGANIZE_THRESHOLD = 8.0
         self.POINT_NUMBER = 20.0
@@ -76,13 +76,14 @@ class Path_planning(object):
         if len(self.trayectory_points_x) < 2:
             rax = self.trayectory_points_x
             ray = self.trayectory_points_y
-        elif len(self.trayectory_points_x) < self.degree:
-            print(self.trayectory_points_x, self.trayectory_points_y)
+        elif len(self.trayectory_points_x) <= self.degree:
+            #print(self.trayectory_points_x, self.trayectory_points_y)
             rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, len(self.trayectory_points_x)-1)
         else:
             rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, self.degree)
 
-        self.marker_array_path_planning(rax, ray)
+        self.marker_array_path_planning(midpoint_x_list, midpoint_y_list)
+        # self.marker_array_path_planning(rax, ray)
         self.update_path(rax, ray)
 
     def midpoint(self, yellow, blue):
@@ -290,15 +291,16 @@ class Path_planning_class(object):
 
         self.marker_array_pub = rospy.Publisher('/path_planning_marker_array_pub', MarkerArray, queue_size=1)
 
-        self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
-        # self.odom_sub = rospy.Subscriber('/odometry_pub', WheelSpeedsStamped, self.odom_callback)
-        #self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
-        #self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
+        #self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
+        self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
 
         self.path_pub = rospy.Publisher('/path_planning_pub', Path, queue_size=1)
 
     def sub_callback(self, msg):
         self.path_planning.update_car_position(msg.pose.pose)
+
+    def sub_callback2(self, msg):
+        self.path_planning.update_car_position(msg.pose)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
@@ -318,6 +320,14 @@ if __name__ == '__main__':
     rate = rospy.Rate(5)  # Hz
 
     while not rospy.is_shutdown():
+        '''if len(path_class.path_planning.trayectory_points_x) > 3:
+            rax, ray = path_class.path_planning.approximate_b_spline_path(path_class.path_planning.trayectory_points_x,
+                                                                          path_class.path_planning.trayectory_points_y,
+                                                                          path_class.path_planning.n_course_point,
+                                                                          path_class.path_planning.degree)
+            #path_class.path_planning.marker_array_path_planning(rax, ray)
+            path_class.path_planning.update_path(rax, ray)'''
+
         path_class.marker_array_pub.publish(path_class.path_planning.marker_ests)
         path_class.path_pub.publish(path_class.path_planning.path)
         rate.sleep()
