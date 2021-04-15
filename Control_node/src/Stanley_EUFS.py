@@ -9,13 +9,13 @@ from std_msgs.msg import Bool
 from geometry_msgs.msg import Vector3Stamped,PoseStamped
 from nav_msgs.msg import Path
 import scipy.interpolate as scipy_interpolate
-from eufs_msgs.msg import CarState
+from eufs_msgs.msg import CarState, CanState
 
 Kp = 1.0                                    # speed proportional gain
 ki = 1.0                                    # speed integral gain
 kd = 0.1                                    # speed derivational gain
 dt = 0.1                                    # [s] time difference
-target_speed = 10.0 / 3.6                   # [m/s]
+target_speed = 5.0 / 3.6                   # [m/s]
 Ke = 5                                      # control gain
 Kv = 1
 max_steer = 27.2 * np.pi / 180              # [rad] max steering angle
@@ -35,6 +35,7 @@ class Stanley(object):
         self.error = []
 
         self.ack_msg = AckermannDriveStamped()
+        self.ack_msg.header.frame_id = "map"
         self.ack_msg.drive.speed = 0                    # [m/s]
         self.ack_msg.drive.steering_angle = 0.0         # [rad]
         self.ack_msg.drive.steering_angle_velocity = 0  # [rad/s]
@@ -56,8 +57,10 @@ class Stanley(object):
             path_x, path_y = self.interpolate_b_spline_path(positions_x, positions_y, self.n_course_point, len(positions_x) - 1)
 
         if 'path_x' in locals():
+            self.ack_msg.header.stamp = rospy.Time.now()
             self.ack_msg.drive.steering_angle = self.stanley_control(path_x, path_y)
             self.ack_msg.drive.acceleration = self.pid_control(target_speed)
+
 
     def interpolate_b_spline_path(self, x, y, n_path_points, degree):
         """
@@ -78,8 +81,7 @@ class Stanley(object):
     def update_car_position(self, pose):
         self.x = pose.position.x
         self.y = pose.position.y
-        self.yaw = self.normalize_angle(
-            np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
+        self.yaw = self.normalize_angle(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
 
     def update_velocity(self, v):
         self.v = v
@@ -170,12 +172,16 @@ class State(object):
     def __init__(self):
         self.stanley_class = Stanley()
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
+        self.state_sub = rospy.Subscriber('/ros_can/state', CanState, self.callbackstate)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
-        self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
+        # self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
         #self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
+        self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
 
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
+
+        self.state = False
 
     def callbackgps(self, data):
         v = np.sqrt(data.vector.x ** 2 + data.vector.y ** 2)  # [m/s]
@@ -192,15 +198,20 @@ class State(object):
     def callbackpath(self, data):
         self.stanley_class.principal_loop(data)
 
+    def callbackstate(self, msg):
+        if msg.as_state == 2:
+            self.state = True
+
 
 if __name__ == '__main__':
     rospy.init_node('stanley', anonymous=True)
     state = State()
-    rate = rospy.Rate(5)    # Hz
+    rate = rospy.Rate(50)    # Hz
     show_animation = False   # To decide if we want to graph the error
 
     while not rospy.is_shutdown():
-        state.control.publish(state.stanley_class.ack_msg)
+        if state.state:
+            state.control.publish(state.stanley_class.ack_msg)
         rate.sleep()
 
     if show_animation:  # pragma: no cover

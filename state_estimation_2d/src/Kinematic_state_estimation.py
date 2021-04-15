@@ -8,6 +8,7 @@ from sensor_msgs.msg import Imu
 from sensor_msgs.msg import NavSatFix
 from eufs_msgs.msg import WheelSpeedsStamped
 from visualization_msgs.msg import MarkerArray, Marker
+from ackermann_msgs.msg import AckermannDriveStamped
 
 class Gps():
 
@@ -85,16 +86,18 @@ class Car():
 
     def __init__(self):
          # super(Car, self).__init__() No hay herencia
-        self.p_est = np.zeros(2)
-        self.v_est = np.zeros(2)
-        self.q_est = 0.0
+        self.x = np.zeros(2)
+        self.v = 0.0
+        self.a = 0.0
+        self.yaw = 0.0
+
         self.p_cov = np.eye(5)
         self.past_time = 0.0
-        self.odom_past_time = 0.0
-        self.odom_q_est = 0.0
+        self.imu_past_time = 0.0
 
         self.var_imu_x = 0.10
         self.var_imu_v = 0.10
+        self.var_imu_a = 0.10
         self.var_imu_w = 0.25
         self.var_imu_yaw = 0.10
         self.var_gnss = 0.25
@@ -103,82 +106,122 @@ class Car():
         self.h_jac = np.zeros([2, 5])
         self.h_jac[:, :2] = np.eye(2)  # measurement model jacobian
 
-        self.h_vel_jac = np.zeros([2, 5])
-        self.h_vel_jac[:, 2:4] = np.eye(2)  # measurement model jacobian
+        self.h_vel_jac = np.zeros([1, 5])
+        self.h_vel_jac[:, 2] = 1.0  # measurement model jacobian
+
+        self.h_acc_jac = np.zeros([1, 5])
+        self.h_acc_jac[:, 3] = 1.0  # measurement model jacobian
 
         self.h_steer_jac = np.zeros([1, 5])
         self.h_steer_jac[:, 4] = np.eye(1)  # measurement model jacobian
 
         self.car_created = False
+        self.wheelbase = 1.58
+        self.radio = 0.2525
+
+        self.path = Path()
+        self.pose = PoseStamped()
+        self.control_msg = WheelSpeedsStamped()
 
     def InicializacionCoche(self, time):
         self.past_time = time
-        self.odom_past_time = time
         self.car_created = True
 
-    def predictionStep(self, time, w_vect, f_vect):
+    def Kinematic_prediction(self, time, u):
         # Update time measurement
         delta_t = time - self.past_time
         self.past_time = time
 
-        # Update state with IMU inputs
-        C_ns = np.array([[np.cos(self.q_est), -np.sin(self.q_est)],
-                         [np.sin(self.q_est), np.cos(self.q_est)]])
+        lr = 0.711
+        beta = math.atan2(lr * math.tan(u[1]), self.wheelbase)
 
-        self.p_est = self.p_est + delta_t * self.v_est + 0.5 * (delta_t ** 2) * C_ns.dot(f_vect)
-        self.v_est = self.v_est + delta_t * C_ns.dot(f_vect)
-        self.q_est = self.q_est + delta_t * w_vect
+        x_dot = self.v * math.cos(self.yaw + beta)
+        y_dot = self.v * math.sin(self.yaw + beta)
+        yaw_dot = self.v * math.sin(beta) / lr
+        #yaw_dot = self.v * math.cos(beta) * math.tan(u[1]) / self.wheelbase
 
-        # Linearize Motion Model
-        F = np.eye(5)
-        F[0:2, 2:4] = delta_t * np.eye(2)
+        self.a = u[0]
+        self.x[0] = self.x[0] + x_dot * delta_t
+        self.x[1] = self.x[1] + y_dot * delta_t
+        self.yaw = self.yaw + yaw_dot * delta_t
+        self.yaw = self.pi_2_pi(self.yaw)
+        self.v = self.v + self.a * delta_t
+
+        F = np.array([[1, 0, math.cos(self.yaw) * delta_t, 0, -self.v * math.sin(self.yaw) * delta_t],
+                      [0, 1, math.sin(self.yaw) * delta_t, 0, self.v * math.cos(self.yaw) * delta_t],
+                      [0, 0, 1, delta_t, 0],
+                      [0, 0, 0, 1, 0],
+                      [0, 0, (math.sin(beta) / lr) * delta_t, 0, 1]])
 
         Q = np.eye(5)
         Q[0:2, 0:2] = self.var_imu_x * Q[0:2, 0:2]
-        Q[2:4, 2:4] = self.var_imu_v * Q[2:4, 2:4]
+        Q[2:3, 2:3] = self.var_imu_v * Q[2:3, 2:3]
+        Q[3:4, 3:4] = self.var_imu_a * Q[3:4, 3:4]
         Q[4:5, 4:5] = self.var_imu_w * Q[4:5, 4:5]
         Q = (delta_t ** 2) * Q
 
         # Propagate uncertainty
         self.p_cov = F.dot(self.p_cov).dot(F.T) + Q
 
-        return self.p_est, self.q_est
+        self.publish_path()
 
-    def updateStep(self, time, gps_coord):
+    def pi_2_pi(self, angle):
+        return (angle + math.pi) % (2 * math.pi) - math.pi
+
+    def updateStep(self, gps_coord):
         # 3.1 Compute Kalman Gain
         R = self.var_gnss * np.eye(2)
         K = self.p_cov.dot(self.h_jac.T.dot(np.linalg.inv(self.h_jac.dot(self.p_cov.dot(self.h_jac.T)) + R)))
 
         # 3.2 Compute error state
-        delta_x = K.dot(gps_coord - self.p_est)
+        delta_x = K.dot(gps_coord - self.x)
 
         # 3.3 Correct predicted state
-        self.p_est = self.p_est + delta_x[:2]
-        self.v_est = self.v_est + delta_x[2:4]
-        self.q_est = self.q_est + delta_x[4]
+        self.x = self.x + delta_x[:2]
+        self.v = self.v + delta_x[2]
+        self.a = self.a + delta_x[3]
+        self.yaw = self.yaw + delta_x[4]
 
         # 3.4 Compute corrected covariance
         self.p_cov = (np.eye(5) - K.dot(self.h_jac)).dot(self.p_cov)
 
-        return self.p_est, self.q_est
-
-    def updateStepVel(self, time, velocity):
+    def updateStepVel(self, velocity):
         # 3.1 Compute Kalman Gain
-        R = self.var_odom * np.eye(2)
+        R = self.var_odom * np.eye(1)
         K = self.p_cov.dot(self.h_vel_jac.T.dot(np.linalg.inv(self.h_vel_jac.dot(self.p_cov.dot(self.h_vel_jac.T)) + R)))
 
         # 3.2 Compute error state
-        delta_v = K.dot(velocity - self.v_est)
+        delta_v = K.dot(np.array([velocity - self.v]))
 
         # 3.3 Correct predicted state
-        self.p_est = self.p_est + delta_v[:2]
-        self.v_est = self.v_est + delta_v[2:4]
-        self.q_est = self.q_est + delta_v[4]
+        self.x = self.x + delta_v[:2]
+        self.v = self.v + delta_v[2]
+        self.a = self.a + delta_v[3]
+        self.yaw = self.yaw + delta_v[4]
 
         # 3.4 Compute corrected covariance
         self.p_cov = (np.eye(5) - K.dot(self.h_vel_jac)).dot(self.p_cov)
 
-        return self.p_est, self.v_est, self.q_est
+    def updateStepAcc(self,time, acceleration):
+        delta_t = time - self.imu_past_time
+        self.imu_past_time = time
+
+        # 3.1 Compute Kalman Gain
+        R = self.var_imu_a * np.eye(1)
+        K = self.p_cov.dot(self.h_vel_jac.T.dot(np.linalg.inv(self.h_vel_jac.dot(self.p_cov.dot(self.h_vel_jac.T)) + R)))
+
+        # 3.2 Compute error state
+        velocity = self.v + delta_t * acceleration
+        delta_v = K.dot(np.array([velocity - self.v]))
+
+        # 3.3 Correct predicted state
+        self.x = self.x + delta_v[:2]
+        self.v = self.v + delta_v[2]
+        self.a = self.a + delta_v[3]
+        self.yaw = self.yaw + delta_v[4]
+
+        # 3.4 Compute corrected covariance
+        self.p_cov = (np.eye(5) - K.dot(self.h_vel_jac)).dot(self.p_cov)
 
     def updateStepSteer(self, time, steering):
         # Update time measurement
@@ -238,65 +281,83 @@ class Car():
         # 3.4 Compute corrected covariance
         self.p_cov = (np.eye(5) - K.dot(self.h_steer_jac)).dot(self.p_cov)
 
+    def publish_path(self):
+        self.path.header.stamp = rospy.Time.now()
+        self.path.header.frame_id = "map"
+        pose = PoseStamped()
+        pose.header.stamp = rospy.Time.now()
+        point = Point()
+        point.x = self.x[0]
+        point.y = self.x[1]
+        point.z = 0.25
+        pose.pose.position = point
+        orientation = Quaternion()
+        # Suponiendo roll y pitch = 0
+        orientation.x = 0.0
+        orientation.y = 0.0
+        orientation.z = np.sin(self.yaw * 0.5)
+        orientation.w = np.cos(self.yaw * 0.5)
+        pose.pose.orientation = orientation
+        self.path.poses.append(pose)
+        self.pose = pose
+
+    def publish_control(self):
+        self.control_msg.header.stamp = rospy.Time.now()
+        self.control_msg.header.frame_id = "map"
+        self.control_msg.rf_speed = self.v
+
+        return self.control_msg
 
 class EKF_Class(object):
     def __init__(self):
-        self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
+        #self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
         #self.imu_angle_sub = rospy.Subscriber('/imu', Imu, self.imu_angle_callback)
 
         self.gps = Gps()
         self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
         self.path_pub = rospy.Publisher('/path_pub', Path, queue_size=1)
         self.pose_pub = rospy.Publisher('/pose_pub', PoseStamped, queue_size=1)
+        self.control_for_slam_pub = rospy.Publisher('/control_for_slam', WheelSpeedsStamped, queue_size=1)
 
         #self.odom_sub = rospy.Subscriber('/ros_can/wheel_speeds', WheelSpeedsStamped, self.odom_callback)
-        #self.odom_pub = rospy.Publisher('/odom_pub', WheelSpeedsStamped, queue_size=10)
+        #self.odom_pub = rospy.Publisher('/odom_pub', WheelSpeedsStamped, queue_size=1)
 
         self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
+        self.control_sub = rospy.Subscriber('/cmd_vel_out', AckermannDriveStamped, self.control_callback)
 
         #self.marker_array_pub = rospy.Publisher('/marker_array_pub', MarkerArray, queue_size=10)
 
         self.car = Car()
-        self.path = Path()
-        self.pose = PoseStamped()
+        self.first = 2
+        self.control_steering = 0.0
 
     def gps_callback(self, msg):
         latitude = msg.latitude
         longitude = msg.longitude
         altitude = msg.altitude
         time_sec = msg.header.stamp.secs
-        time_nsec = msg.header.stamp.nsecs / (10.0 ** 9)
+        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
         timestamp = time_sec + time_nsec
-        gps_values = self.gps.gps_loop(latitude, longitude, altitude)
+        x, y = self.gps.gps_loop(latitude, longitude, altitude)
+        gps_values = np.array([x, y])
 
         if self.car.car_created:
-            p_est, q_est = self.car.updateStep(timestamp, gps_values)
-            self.path.header = msg.header
-            self.path.header.frame_id = "map"
-            gps_pose = self.append_pose(p_est, q_est, msg)
-            self.path.poses.append(gps_pose)
-            self.pose = gps_pose
-            #self.plot_covariance_ellipse(p_est, self.car.p_cov, msg.header)
+            self.car.updateStep(gps_values)
 
     def imu_callback(self, msg):
         imudata_angular = msg.angular_velocity.z
         imudata_linear = np.array([msg.linear_acceleration.x, msg.linear_acceleration.y])
         time_sec = msg.header.stamp.secs
-        time_nsec = msg.header.stamp.nsecs / (10.0 ** 9)
+        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
         timestamp = time_sec + time_nsec
         #orientation = msg.orientation
+        acceleration = math.sqrt(imudata_linear[0] ** 2 + imudata_linear[1] ** 2)
 
         if self.car.car_created:
             #self.car.updateAngleQuat(orientation)
-            p_est, q_est = self.car.predictionStep(timestamp, imudata_angular, imudata_linear)
-            self.path.header = msg.header
-            self.path.header.frame_id = "map"
-            imu_pose = self.append_pose(p_est, q_est, msg)
-            self.path.poses.append(imu_pose)
-            self.pose = imu_pose
-            #self.plot_covariance_ellipse(p_est, self.car.p_cov, msg.header)
+            self.car.updateStepAcc(timestamp, acceleration)
         else:
-            self.car.InicializacionCoche(timestamp)
+            self.car.imu_past_time = timestamp
 
     def imu_angle_callback(self, msg):
         if self.car.car_created:
@@ -308,47 +369,47 @@ class EKF_Class(object):
         time_nsec = msg.header.stamp.nsecs / (10.0 ** 9)
         timestamp = time_sec + time_nsec
         velocity_rpm = (msg.lb_speed + msg.rb_speed) / 2
-        velocity_mean = (velocity_rpm * 2 * math.pi * 0.25) / 60
-
-        C_ns = np.array([[np.cos(self.car.q_est), -np.sin(self.car.q_est)],
-                         [np.sin(self.car.q_est), np.cos(self.car.q_est)]])
-
-        velocity = C_ns.dot([velocity_mean, 0.0])
+        velocity_mean = (velocity_rpm * 2 * math.pi * self.car.radio) / 60
 
         # Max steering = 0.52 rad/s
         steering = msg.steering
-        #print(velocity_rpm, velocity_mean)
 
         if self.car.car_created:
-            #p_est, v_est, q_est = self.car.updateStepVel(timestamp, velocity)
-            p_est, v_est, q_est = self.car.updateStepSteer(timestamp, steering)
-            self.path.header = msg.header
-            self.path.header.frame_id = "map"
-            odom_pose = self.append_pose(p_est, q_est, msg)
-            self.path.poses.append(odom_pose)
-            self.pose = odom_pose
-            #self.plot_covariance_ellipse(p_est, self.car.p_cov, msg.header)
+            #self.car.updateStepVel(timestamp, velocity)
+            #self.car.updateStepSteer(timestamp, steering)
 
-            #odometry.lf_speed = v_est[0]
-            #odometry.rf_speed = velocity_mean
+            odometry.lf_speed = steering
+            odometry.rf_speed = self.control_steering
+            odometry.lb_speed = self.control_steering - steering
             #self.odom_pub.publish(odometry)
 
     def gps_vel_callback(self, msg):
         time_sec = msg.header.stamp.secs
-        time_nsec = msg.header.stamp.nsecs / (10.0 ** 9)
+        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
         timestamp = time_sec + time_nsec
         velocity = [-msg.vector.y + 1*10**-12, msg.vector.x]
+        velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
         yaw = np.arctan2(velocity[1], velocity[0])
-        #print(velocity, yaw)
+
         if self.car.car_created:
-            #self.car.updateAngle(yaw)
-            p_est, v_est, q_est = self.car.updateStepVel(timestamp, velocity)
-            self.path.header = msg.header
-            self.path.header.frame_id = "map"
-            gps_vel_pose = self.append_pose(p_est, q_est, msg)
-            self.path.poses.append(gps_vel_pose)
-            self.pose = gps_vel_pose
-            #self.plot_covariance_ellipse(p_est, self.car.p_cov, msg.header)
+            self.car.updateStepVel(velocity_mean)
+
+    def control_callback(self, msg):
+        u = np.zeros(2)
+        time_sec = msg.header.stamp.secs
+        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
+        time = time_sec + time_nsec
+        angle = msg.drive.steering_angle
+        acceleration = msg.drive.acceleration
+        u[0] = acceleration
+        u[1] = angle
+        self.control_steering = angle
+        self.car.control_msg.steering = angle
+
+        if self.first != 0:
+            self.car.InicializacionCoche(time)
+            self.first -= 1
+        self.car.Kinematic_prediction(time, u)
 
     def append_pose(self, p_est, q_est, msg):
         pose = PoseStamped()
@@ -423,7 +484,7 @@ class EKF_Class(object):
             marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.01, 0.01, 0.01)
             marker_ests.markers.append(marker_est)
 
-        self.marker_array_pub.publish(marker_ests)
+        #self.marker_array_pub.publish(marker_ests)
 
 if __name__ == '__main__':
     rospy.init_node('EKF_node', anonymous=True)
@@ -432,6 +493,7 @@ if __name__ == '__main__':
     rate = rospy.Rate(50)  # Hz
 
     while not rospy.is_shutdown():
-        ekf_class.path_pub.publish(ekf_class.path)
-        ekf_class.pose_pub.publish(ekf_class.pose)
+        ekf_class.path_pub.publish(ekf_class.car.path)
+        ekf_class.pose_pub.publish(ekf_class.car.pose)
+        ekf_class.control_for_slam_pub.publish(ekf_class.car.publish_control())
         rate.sleep()

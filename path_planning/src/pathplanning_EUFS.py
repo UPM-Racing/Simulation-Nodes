@@ -28,16 +28,16 @@ class Path_planning(object):
         self.degree = 3 #approximate_b_spline_path degree
         self.trayectory_points_x = []
         self.trayectory_points_y = []
-        self.CLEAR_THRESHOLD = 0.5
+        self.CLEAR_THRESHOLD = 1.0
         self.finished_lap = False
-        self.REORGANIZE_THRESHOLD = 8.0
+        self.deleted_initial_point = False
+        self.REORGANIZE_THRESHOLD = 5.0
         self.POINT_NUMBER = 20.0
-
-        # se crean las particulas vacias para que se expandan con la llegada de landmarks
-        # self.particles = [Particle(0) for _ in range(N_PARTICLE)]
 
     # por cada landmark de entrada:
     def bucle_principal(self, cones_yellow, cones_blue, cones_orange, time):
+        cones_for_array_x = []
+        cones_for_array_y = []
         midpoint_x_list = []
         midpoint_y_list = []
         blue_x = np.zeros(len(cones_blue))
@@ -45,14 +45,23 @@ class Path_planning(object):
         for i, cone in enumerate(cones_blue):
             blue_x[i] = cone.point.x
             blue_y[i] = cone.point.y
+            cone_for_array_x, cone_for_array_y = self.local_to_global(cone.point.x, cone.point.y)
+            cones_for_array_x.append(cone_for_array_x)
+            cones_for_array_y.append(cone_for_array_y)
+
+        for i, cone in enumerate(cones_yellow):
+            cone_for_array_x, cone_for_array_y = self.local_to_global(cone.point.x, cone.point.y)
+            cones_for_array_x.append(cone_for_array_x)
+            cones_for_array_y.append(cone_for_array_y)
+
+        blue_x = blue_x.reshape(-1, 1)
+        blue_y = blue_y.reshape(-1, 1)
+        blue_positions = np.hstack((blue_x, blue_y))
 
         for i, cone in enumerate(cones_yellow):
             cone_x = cone.point.x
             cone_y = cone.point.y
             cone_position = np.array([(cone_x, cone_y)])
-            blue_x = blue_x.reshape(-1, 1)
-            blue_y = blue_y.reshape(-1, 1)
-            blue_positions = np.hstack((blue_x, blue_y))
             distances = cdist(cone_position, blue_positions, 'euclidean')
             distances = distances.reshape(-1,)
             for j, distance in enumerate(distances):
@@ -61,14 +70,43 @@ class Path_planning(object):
                     midpoint_x_list.append(midpoint_x)
                     midpoint_y_list.append(midpoint_y)
 
+        orange_x = np.zeros(len(cones_orange))
+        orange_y = np.zeros(len(cones_orange))
+        for i, cone in enumerate(cones_orange):
+            orange_x[i] = cone.point.x
+            orange_y[i] = cone.point.y
+            cone_for_array_x, cone_for_array_y = self.local_to_global(cone.point.x, cone.point.y)
+            cones_for_array_x.append(cone_for_array_x)
+            cones_for_array_y.append(cone_for_array_y)
+
+        orange_x = orange_x.reshape(-1, 1)
+        orange_y = orange_y.reshape(-1, 1)
+        orange_positions = np.hstack((orange_x, orange_y))
+
+        #for i, cone in enumerate(cones_orange):
+        if len(cones_orange) > 0:
+            cone_x = cones_orange[0].point.x
+            cone_y = cones_orange[0].point.y
+            orange_positions = np.delete(orange_positions, 0, 0)
+            cone_position = np.array([(cone_x, cone_y)])
+            distances = cdist(cone_position, orange_positions, 'euclidean')
+            distances = distances.reshape(-1,)
+            for j, distance in enumerate(distances):
+                if distance >= 4:
+                    midpoint_x, midpoint_y = self.midpoint(cones_orange[0].point, cones_orange[j+1].point)
+                    midpoint_x_list.append(midpoint_x)
+                    midpoint_y_list.append(midpoint_y)
+                    #break
+
+
         #print(midpoint_x_list)
         #print(midpoint_y_list)
         #print('----------------')
 
-        if len(self.trayectory_points_x) == 0:
+        if len(self.trayectory_points_x) == 0 and len(midpoint_x_list) > 0:
             x_new, y_new = self.append_first_point(np.array(midpoint_x_list), np.array(midpoint_y_list))
             self.append_new_points(x_new, y_new)
-        else:
+        elif len(midpoint_x_list) > 0:
             x_new, y_new = self.clear_points(midpoint_x_list, midpoint_y_list)
             self.append_new_points(np.array(x_new), np.array(y_new))
             self.reorganize_trayectory()
@@ -83,7 +121,6 @@ class Path_planning(object):
             rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, self.degree)
 
         self.marker_array_path_planning(midpoint_x_list, midpoint_y_list)
-        # self.marker_array_path_planning(rax, ray)
         self.update_path(rax, ray)
 
     def midpoint(self, yellow, blue):
@@ -101,7 +138,7 @@ class Path_planning(object):
             marker_est.header.frame_id = "map"
             marker_est.ns = "est_pose_" + str(i)
             marker_est.id = i
-            marker_est.type = Marker.CUBE
+            marker_est.type = Marker.CYLINDER
             marker_est.action = Marker.ADD
             pose = Pose()
             point = Point()
@@ -119,25 +156,25 @@ class Path_planning(object):
             marker_est.pose = pose
             marker_est.color.r, marker_est.color.g, marker_est.color.b = (0, 255, 0)
             marker_est.color.a = 0.5
-            marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.1, 0.1, 0.1)
+            marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.2, 0.2, 0.8)
             self.marker_ests.markers.append(marker_est)
 
     def local_to_global(self, x, y):
-        # position = np.array([x, y])
-        # C_ns = np.array([[np.cos(self.yaw), -np.sin(self.yaw)], [np.sin(self.yaw), np.cos(self.yaw)]])
-        # rotated_position = C_ns.dot(position) + np.array([self.x, self.y])
+        position = np.array([x, y])
+        C_ns = np.array([[np.cos(self.yaw), -np.sin(self.yaw)], [np.sin(self.yaw), np.cos(self.yaw)]])
+        rotated_position = C_ns.dot(position) + np.array([self.x, self.y])
 
-        d, angle = self.definir_posicion(x, y)
+        #d, angle = self.definir_posicion(x, y)
 
         # calculamos el seno y el coseno del angulo del coche mas el de la observacion
-        s = math.sin(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
-        c = math.cos(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
+        #s = math.sin(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
+        #c = math.cos(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
 
         # se anaden la x y la y correspondientes a la lista de landmarks
-        x = self.x + d * c
-        y = self.y + d * s
+        #x = self.x + d * c
+        #y = self.y + d * s
 
-        return x, y
+        return rotated_position[0], rotated_position[1]
 
     def pi_2_pi(self, angle):
         return (angle + math.pi) % (2 * math.pi) - math.pi
@@ -150,7 +187,11 @@ class Path_planning(object):
     def update_car_position(self, pose):
         self.x = pose.position.x
         self.y = pose.position.y
+        #print('----------------')
+        #print('Path planning', self.yaw)
         self.yaw = self.pi_2_pi(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
+        #print('Path planning', self.yaw)
+        #self.yaw = pose.orientation.z
 
     def approximate_b_spline_path(self, x, y, n_path_points, degree):
         """
@@ -185,6 +226,8 @@ class Path_planning(object):
         distances = cdist(car_position, cone_positions, 'euclidean')
         distances = distances.reshape(-1, )
         index_min = np.argmin(distances)
+        self.trayectory_points_x.append(self.x)
+        self.trayectory_points_y.append(self.y)
         self.trayectory_points_x.append(x[index_min])
         self.trayectory_points_y.append(y[index_min])
         x = np.delete(x, index_min)
@@ -212,35 +255,43 @@ class Path_planning(object):
         x_new = []
         y_new = []
 
+        trayectory_points_x = np.array(self.trayectory_points_x)
+        trayectory_points_y = np.array(self.trayectory_points_y)
+        trayectory_points_x = trayectory_points_x.reshape(-1, 1)
+        trayectory_points_y = trayectory_points_y.reshape(-1, 1)
+
         for i in range(len(x)):
-            trayectory_points_x = np.array(self.trayectory_points_x)
-            trayectory_points_y = np.array(self.trayectory_points_y)
-            trayectory_points_x = trayectory_points_x.reshape(-1, 1)
-            trayectory_points_y = trayectory_points_y.reshape(-1, 1)
             trayectory_points = np.hstack((trayectory_points_x, trayectory_points_y))
             position = np.array([(x[i], y[i])])
             distances = cdist(position, trayectory_points, 'euclidean')
             distances = distances.reshape(-1, )
             index_min = np.argmin(distances)
 
+            if len(self.trayectory_points_x) > self.POINT_NUMBER and self.deleted_initial_point is False:
+                self.trayectory_points_x.pop(0)
+                self.trayectory_points_y.pop(0)
+                self.deleted_initial_point = True
+
             if distances[0] <= self.CLEAR_THRESHOLD and len(self.trayectory_points_x) > self.POINT_NUMBER:
                 self.finished_lap = True
                 x_new.append(x[i])
                 y_new.append(y[i])
-                #print(self.finished_lap)
+                #print('FINISHED LAP')
             elif distances[index_min] >= self.CLEAR_THRESHOLD:
                 x_new.append(x[i])
                 y_new.append(y[i])
+                np.append(trayectory_points_x, x[i])
+                np.append(trayectory_points_y, y[i])
 
         return x_new, y_new
 
     def update_path(self, x, y):
         path = Path()
-        path.header.stamp = rospy.Time()
+        path.header.stamp = rospy.Time.now()
         path.header.frame_id = "map"
         for i in range(len(x)):
             pose = PoseStamped()
-            pose.header.stamp = rospy.Time()
+            pose.header.stamp = rospy.Time.now()
             point = Point()
             point.x = x[i]
             point.y = y[i]
@@ -281,7 +332,6 @@ class Path_planning(object):
                 x_new.append(self.trayectory_points_x.pop(index))
                 y_new.append(self.trayectory_points_y.pop(index))
 
-
         self.append_new_points(np.array(x_new), np.array(y_new))
 
 class Path_planning_class(object):
@@ -293,18 +343,21 @@ class Path_planning_class(object):
 
         #self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
         self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
+        #self.slam_pose_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
 
         self.path_pub = rospy.Publisher('/path_planning_pub', Path, queue_size=1)
 
     def sub_callback(self, msg):
         self.path_planning.update_car_position(msg.pose.pose)
+        #print('------GROUND TRUTH---------')
+        #print(self.path_planning.pi_2_pi(np.arctan2(2 * (msg.pose.pose.orientation.w * msg.pose.pose.orientation.z), 1 - 2 * (msg.pose.pose.orientation.z ** 2))))
 
     def sub_callback2(self, msg):
         self.path_planning.update_car_position(msg.pose)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
-        time_nsec = msg.header.stamp.nsecs / (10.0 ** 9)
+        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
         timestamp = time_sec + time_nsec
         cones_yellow = msg.yellow_cones
         cones_blue = msg.blue_cones
@@ -317,7 +370,7 @@ if __name__ == '__main__':
     rospy.init_node('path_planning_node', anonymous=True)
     path_class = Path_planning_class()
     #rospy.spin()
-    rate = rospy.Rate(5)  # Hz
+    rate = rospy.Rate(10)  # Hz
 
     while not rospy.is_shutdown():
         '''if len(path_class.path_planning.trayectory_points_x) > 3:

@@ -11,11 +11,11 @@ from eufs_msgs.msg import WheelSpeedsStamped
 from sensor_msgs.msg import Imu
 from ackermann_msgs.msg import AckermannDriveStamped
 
-Q = np.diag([0.5, np.deg2rad(2.0)]) ** 2
-R = np.diag([1.0, np.deg2rad(50.0)]) ** 2
+Q = np.diag([3.0, np.deg2rad(10.0)]) ** 2
+R = np.diag([1.0, np.deg2rad(20.0)]) ** 2
 
 N_PARTICLE = 50  # number of particle
-NTH = N_PARTICLE / 2.0  # Number of particle for re-sampling
+NTH = N_PARTICLE / 1.3  # Number of particle for re-sampling
 
 class Particle:
     def __init__(self, n_landmark):
@@ -24,7 +24,7 @@ class Particle:
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
-        # self.v = 0.0
+        self.P = np.eye(3)
         # landmark x-y positions with shape (n_landmark, LM_SIZE)
         self.lm = np.zeros((n_landmark, 2))
         # landmark position covariance
@@ -45,16 +45,14 @@ class FastSLAM:
         self.y = 0.0
         self.yaw = 0.0
         self.DT = 0.0
-        self.wheelbase = 1.58
         self.THRESHOLD = 1.5
-        self.cones_x = []
-        self.cones_y = []
         self.marker_ests = MarkerArray()
         self.slam_marker_ests = MarkerArray()
         self.total_landmarks = 0
         self.u = np.zeros((2, 1))
         self.path = Path()
         self.pose = PoseStamped()
+        self.wheelbase = 1.58
         self.state_x = 0.0
         self.state_y = 0.0
         self.state_yaw = 0.0
@@ -73,8 +71,8 @@ class FastSLAM:
 
         z = np.zeros((3, 0))
 
-        marker_x = []
-        marker_y = []
+        cones_x = []
+        cones_y = []
 
         for i, cone in enumerate(landmarks):
             if len(landmarks_x) == 0:
@@ -82,13 +80,14 @@ class FastSLAM:
                 self.expandir_particulas(1)
                 self.total_landmarks += 1
             else:
+                ''' Se calcula a partir de la posicion del coche anterior, igual habria que hacer el motion model antes'''
                 x, y = self.local_to_global(cone.point.x, cone.point.y)
-                #marker_x.append(x)
-                #marker_y.append(y)
+                cones_x.append(x)
+                cones_y.append(y)
                 new_landmark_position = np.array([(x, y)])
-                new_landmarks_x = landmarks_x.reshape(-1, 1)
-                new_landmarks_y = landmarks_y.reshape(-1, 1)
-                landmark_positions = np.hstack((new_landmarks_x, new_landmarks_y))
+                landmarks_x = landmarks_x.reshape(-1, 1)
+                landmarks_y = landmarks_y.reshape(-1, 1)
+                landmark_positions = np.hstack((landmarks_x, landmarks_y))
                 diferencias = distance.cdist(new_landmark_position, landmark_positions, 'euclidean')
                 diferencias = diferencias.reshape(-1,)
                 index_min = np.argmin(diferencias)
@@ -110,7 +109,7 @@ class FastSLAM:
         #print(self.total_landmarks)
         #print('-----------------------------------')
 
-        self.particles = self.fast_slam1(self.particles, z)
+        self.particles = self.fast_slam2(self.particles, z)
         xEst = self.calc_final_state(self.particles)
 
         self.x = xEst[0, 0]
@@ -122,7 +121,7 @@ class FastSLAM:
         marker_x_low = []
         marker_y_low = []
         for particle in self.particles:
-            if particle.w > (0.95/N_PARTICLE):
+            if particle.w > (0.9 / N_PARTICLE):
                 marker_x_high.append(particle.x)
                 marker_y_high.append(particle.y)
             else:
@@ -155,16 +154,6 @@ class FastSLAM:
         x[1, 0] = x[1, 0] + y_dot * self.DT
         x[2, 0] = x[2, 0] + yaw_dot * self.DT
 
-        '''x_dot = x[3, 0] * math.cos(x[2, 0] + beta)
-        y_dot = x[3, 0] * math.sin(x[2, 0] + beta)
-        yaw_dot = x[3, 0] * math.sin(beta) / lr
-        # yaw_dot = self.v * math.cos(beta) * math.tan(u[1]) / self.wheelbase
-
-        x[0, 0] = x[0, 0] + x_dot * self.DT
-        x[1, 0] = x[1, 0] + y_dot * self.DT
-        x[2, 0] = x[2, 0] + yaw_dot * self.DT
-        x[3, 0] = x[3, 0] + u[0, 0] * self.DT'''
-
         x[2, 0] = self.pi_2_pi(x[2, 0])
 
         return x
@@ -172,7 +161,7 @@ class FastSLAM:
     def pi_2_pi(self, angle):
         return (angle + math.pi) % (2 * math.pi) - math.pi
 
-    def fast_slam1(self, particles, z):
+    def fast_slam2(self, particles, z):
         """
         :param particles: list of Particle objects
         :param z: the observations detected
@@ -199,7 +188,6 @@ class FastSLAM:
             # se vuelve a anadir ruido a el control input vector
             # (2,1) u = [vel, yaw_rate]
             ud = self.u + (np.matmul(np.random.randn(1, 2) / 4.0, R ** 0.5)).T  # add noise
-            #print(self.u - ud)
             # se actualiza el estado de las particulas en funcion del motion model
             px = self.motion_model(px, ud)
             particles[i].x = px[0, 0]
@@ -216,7 +204,6 @@ class FastSLAM:
         """
         # Por cada landmark en z
         for iz in range(len(z[0, :])):
-
             landmark_id = int(z[2, iz])
 
             # por cada particula
@@ -231,8 +218,33 @@ class FastSLAM:
                     # Se multiplica el peso por el guardado
                     particles[ip].w *= w
                     particles[ip] = self.update_landmark(particles[ip], z[:, iz], Q)
+                    particles[ip] = self.proposal_sampling(particles[ip], z[:, iz], Q)
 
         return particles
+
+    def proposal_sampling(self, particle, z, Q_cov):
+        lm_id = int(z[2])
+        xf = np.array(particle.lm[lm_id, :]).reshape(2, 1)
+        Pf = np.array(particle.lmP[2 * lm_id:2 * lm_id + 2])
+        # State
+        x = np.array([particle.x, particle.y, particle.yaw]).reshape(3, 1)
+        P = particle.P
+        zp, Hv, Hf, Sf = self.compute_jacobians(particle, xf, Pf, Q_cov)
+
+        Sfi = np.linalg.inv(Sf)
+        dz = z[0:2].reshape(2, 1) - zp
+        dz[1, 0] = self.pi_2_pi(dz[1, 0])
+
+        Pi = np.linalg.inv(P)
+
+        particle.P = np.linalg.inv(np.matmul(np.matmul(Hv.T, Sfi), Hv) + Pi)  # proposal covariance
+        x += np.matmul(np.matmul(np.matmul(particle.P, Hv.T), Sfi), dz)  # proposal mean
+
+        particle.x = x[0, 0]
+        particle.y = x[1, 0]
+        particle.yaw = x[2, 0]
+
+        return particle
 
     def add_new_landmark(self, particle, z, Q_cov):
         """
@@ -283,8 +295,8 @@ class FastSLAM:
         zp, Hv, Hf, Sf = self.compute_jacobians(particle, xf, Pf, Q_cov)
 
         # La diferencia entre z y zp
-        dx = z[0:2].reshape(2, 1) - zp
-        dx[1, 0] = self.pi_2_pi(dx[1, 0])
+        dz = z[0:2].reshape(2, 1) - zp
+        dz[1, 0] = self.pi_2_pi(dz[1, 0])
 
         # Calculamos la inversa de Sf
         try:
@@ -294,7 +306,7 @@ class FastSLAM:
             return 1.0
 
         # Se calcula el peso de la particula con la formula
-        num = math.exp(-0.5 * np.matmul(np.matmul(dx.T, invS), dx))
+        num = math.exp(-0.5 * np.matmul(np.matmul(dz.T, invS), dz))
         den = math.sqrt(np.linalg.det(2.0 * math.pi * Sf))
 
         w = num / den
@@ -345,7 +357,7 @@ class FastSLAM:
         lm_id = int(z[2])
         xf = np.array(particle.lm[lm_id, :]).reshape(2, 1)
         # Saca la covarianza
-        Pf = np.array(particle.lmP[2 * lm_id:2 * lm_id + 2, :])
+        Pf = np.array(particle.lmP[2 * lm_id:2 * lm_id + 2])
 
         zp, Hv, Hf, Sf = self.compute_jacobians(particle, xf, Pf, Q_cov)
 
@@ -353,19 +365,7 @@ class FastSLAM:
         dz = z[0:2].reshape(2, 1) - zp
         dz[1, 0] = self.pi_2_pi(dz[1, 0])
 
-        '''
-        try:
-            invS = np.linalg.inv(Sf)
-        except np.linalg.linalg.LinAlgError:
-            print("singular")
-            return 1.0
-
-        # Update the position and covariance with Kalman filter
-        K = np.matmul(np.matmul(Pf, Hf.T), invS)
-        xf = xf + np.matmul(K, dz)
-        Pf = np.matmul(np.eye(2) - np.matmul(K, Hf), Pf)'''
-
-        xf, Pf = self.update_kf_with_cholesky(xf, Pf, dz, Q_cov, Hf)
+        xf, Pf = self.update_kf_with_cholesky(xf, Pf, dz, Q, Hf)
 
         particle.lm[lm_id, :] = xf.T
         particle.lmP[2 * lm_id:2 * lm_id + 2, :] = Pf
@@ -377,10 +377,10 @@ class FastSLAM:
         S = np.matmul(Hf, PHt) + Q_cov
 
         S = (S + S.T) * 0.5
-        s_chol = np.linalg.cholesky(S).T
-        s_chol_inv = np.linalg.inv(s_chol)
-        W1 = np.matmul(PHt, s_chol_inv)
-        W = np.matmul(W1, s_chol_inv.T)
+        SChol = np.linalg.cholesky(S).T
+        SCholInv = np.linalg.inv(SChol)
+        W1 = np.matmul(PHt, SCholInv)
+        W = np.matmul(W1, SCholInv.T)
 
         x = xf + np.matmul(W, v)
         P = Pf - np.matmul(W1, W1.T)
@@ -402,6 +402,7 @@ class FastSLAM:
         pw = np.array(pw)
 
         n_eff = 1.0 / (np.matmul(pw, pw.T))  # Effective particle number
+        # print(n_eff)
 
         # resampling when n_eff drops below threshold
         if n_eff < NTH:  # resampling
@@ -491,13 +492,9 @@ class FastSLAM:
         self.state_y = pose.position.y
         self.state_yaw = self.pi_2_pi(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
 
-    def update_car_position_odom(self, time, velocity, yaw):
+    def update_car_position_odom(self, time, velocity, yaw_rate):
         self.u[0, 0] = velocity
-        self.u[1, 0] = yaw
-
-    def update_car_control(self, acc, yaw):
-        self.u[0, 0] = acc
-        self.u[1, 0] = yaw
+        self.u[1, 0] = yaw_rate
 
     def update_car_yaw(self, yaw):
         self.u[1, 0] = yaw
@@ -582,9 +579,9 @@ class FastSLAM:
         self.slam_marker_ests.markers = []
 
         # calcular las posiciones medias de los conos en las particulas
-        landmarks_x, landmarks_y = self.calc_final_lm_position(self.particles)
+        distances_x, distances_y = self.calc_final_lm_position(self.particles)
 
-        for i in range(len(landmarks_x)):
+        for i in range(len(distances_x)):
             marker_est = Marker()
             marker_est.header.frame_id = "map"
             marker_est.ns = "est_pose_" + str(i)
@@ -593,8 +590,8 @@ class FastSLAM:
             marker_est.action = Marker.ADD
             pose = Pose()
             point = Point()
-            point.x = landmarks_x[i]
-            point.y = landmarks_y[i]
+            point.x = distances_x[i]
+            point.y = distances_y[i]
             point.z = 0.4
             pose.position = point
             orientation = Quaternion()
@@ -636,8 +633,8 @@ class Slam_Class(object):
         self.fast_slam = FastSLAM()
         self.cones_sub = rospy.Subscriber('/ground_truth/cones', ConeArrayWithCovariance, self.cones_callback)
 
-        self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
         self.slam_marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
+        self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
 
         # Solo pueden estar conectado 1 de estos dos siguientes
         self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
@@ -648,7 +645,6 @@ class Slam_Class(object):
         # self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
         self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
         self.control_sub = rospy.Subscriber('/cmd_vel_out', AckermannDriveStamped, self.control_callback)
-        # self.state_control_sub = rospy.Subscriber('/control_for_slam', WheelSpeedsStamped, self.state_control_callback)
 
         self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
         self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
@@ -699,18 +695,6 @@ class Slam_Class(object):
         acceleration = msg.drive.acceleration
 
         self.fast_slam.update_car_yaw(angle)
-
-    def state_control_callback(self, msg):
-        time_sec = msg.header.stamp.secs
-        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
-        time = time_sec + time_nsec
-
-        velocity = msg.rf_speed
-
-        # Max steering = 0.52 rad/s
-        steering = msg.steering
-
-        self.fast_slam.update_car_position_odom(time, velocity, steering)
 
 
 if __name__ == '__main__':

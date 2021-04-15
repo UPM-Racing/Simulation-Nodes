@@ -1,10 +1,12 @@
 #! /usr/bin/env python
 import rospy
+import numpy as np
 from sensor_msgs.msg import Imu
 from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import Float64MultiArray
 import math
 from eufs_msgs.msg import WheelSpeedsStamped
+from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion, Vector3Stamped
 
 class Gps():
 
@@ -81,15 +83,19 @@ class Gps():
 
 class SensorClass(object):
   def __init__(self):
-    self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_odom_callback)
-    self.imu_pub = rospy.Publisher('/imu_pub', Imu, queue_size=1)
-    self.imu = Imu()
+    #self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_odom_callback)
+    #self.imu_pub = rospy.Publisher('/imu_pub', Imu, queue_size=1)
+    #self.imu = Imu()
 
     self.odom_sub = rospy.Subscriber('/ros_can/wheel_speeds', WheelSpeedsStamped, self.odom_callback)
     self.odometry = WheelSpeedsStamped()
     self.odom_pub = rospy.Publisher('/odometry_pub', WheelSpeedsStamped, queue_size=1)
 
+    self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
+
     self.gps = Gps()
+    self.radio = 0.2525
+    self.gps_velocity = 0.0
     #self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
     #self.gps_pub = rospy.Publisher('/gps_pub', Float64MultiArray, queue_size=1)
 
@@ -104,6 +110,14 @@ class SensorClass(object):
     gps = Float64MultiArray()
     gps.data = self.gps.gps_loop(timestamp, latitude, longitude, altitude)
     self.gps_pub.publish(gps)
+
+  def gps_vel_callback(self, msg):
+    time_sec = msg.header.stamp.secs
+    time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
+    timestamp = time_sec + time_nsec
+    velocity = [-msg.vector.y + 1 * 10 ** -12, msg.vector.x]
+    velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
+    self.gps_velocity = velocity_mean
 
   def imu_callback(self, msg):
     imudata_angular = msg.angular_velocity
@@ -121,14 +135,22 @@ class SensorClass(object):
 
   def odom_callback(self, msg):
     self.odometry = msg
+    time_sec = msg.header.stamp.secs
+    time_nsec = msg.header.stamp.nsecs / (10.0 ** 9)
+    timestamp = time_sec + time_nsec
+    velocity_rpm = (msg.lb_speed + msg.rb_speed) / 2
+    velocity_mean = (velocity_rpm * 2 * math.pi * self.radio) / 60
+    self.odometry.lf_speed = self.gps_velocity
+    self.odometry.rf_speed = self.gps_velocity - velocity_mean
+    self.odometry.lb_speed = velocity_mean
 
 if __name__ == '__main__':
   rospy.init_node('sensor_node', anonymous=True)
   sensor_class = SensorClass()
   # rospy.spin()
-  rate = rospy.Rate(70)  # Hz
+  rate = rospy.Rate(10)  # Hz
 
   while not rospy.is_shutdown():
     sensor_class.odom_pub.publish(sensor_class.odometry)
-    sensor_class.imu_pub.publish(sensor_class.imu)
+    #sensor_class.imu_pub.publish(sensor_class.imu)
     rate.sleep()
