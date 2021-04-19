@@ -12,30 +12,43 @@ from nav_msgs.msg import Path
 
 class Path_planning(object):
     def __init__(self):
-        self.past_time = 0.0
+        ''' Parametros no configurables '''
+        # Estado del coche
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
-        self.DT = 0.0
-        self.THRESHOLD = 5.5
-        self.cones_x = []
-        self.cones_y = []
-        self.marker_ests = MarkerArray()
-        self.total_landmarks = 0
-        self.u = np.zeros((2, 1))
-        self.path = Path()
-        self.n_course_point = 100  # sampling number
-        self.degree = 3 #approximate_b_spline_path degree
-        self.trayectory_points_x = []
-        self.trayectory_points_y = []
-        self.CLEAR_THRESHOLD = 1.0
+
+        # Inicializacion variables path planning
         self.finished_lap = False
         self.deleted_initial_point = False
+
+        # Inicializacion de listas para mostrar en Rviz
+        self.trayectory_points_x = []
+        self.trayectory_points_y = []
+        self.marker_ests = MarkerArray()
+        self.path = Path()
+
+        ''' Parametros configurables '''
+        # Threshold de distancia entre conos
+        self.THRESHOLD = 5.5
+        self.ORANGE_THRESHOLD = 2.5
+        self.CLEAR_THRESHOLD = 1.0
         self.REORGANIZE_THRESHOLD = 5.0
         self.POINT_NUMBER = 20.0
 
-    # por cada landmark de entrada:
-    def bucle_principal(self, cones_yellow, cones_blue, cones_orange, time):
+        # Configuracion del b_spline
+        self.n_course_point = 100   # sampling number
+        self.degree = 3             # approximate_b_spline_path degree
+
+    def bucle_principal(self, cones_yellow, cones_blue, cones_orange):
+        '''
+        Este es el bucle principal de path planning, que se ejecuta cada vez que llega un mensaje de observaciones.
+
+        :param cones_yellow: Coordenadas locales de la posicion de los conos amarillos
+        :param cones_blue: Coordenadas locales de la posicion de los conos azules
+        :param cones_orange: Coordenadas locales de la posicion de los conos naranjas
+        :return:
+        '''
         cones_for_array_x = []
         cones_for_array_y = []
         midpoint_x_list = []
@@ -83,7 +96,6 @@ class Path_planning(object):
         orange_y = orange_y.reshape(-1, 1)
         orange_positions = np.hstack((orange_x, orange_y))
 
-        #for i, cone in enumerate(cones_orange):
         if len(cones_orange) > 0:
             cone_x = cones_orange[0].point.x
             cone_y = cones_orange[0].point.y
@@ -92,20 +104,15 @@ class Path_planning(object):
             distances = cdist(cone_position, orange_positions, 'euclidean')
             distances = distances.reshape(-1,)
             for j, distance in enumerate(distances):
-                if distance >= 4:
+                if distance >= self.ORANGE_THRESHOLD:
                     midpoint_x, midpoint_y = self.midpoint(cones_orange[0].point, cones_orange[j+1].point)
                     midpoint_x_list.append(midpoint_x)
                     midpoint_y_list.append(midpoint_y)
-                    #break
-
-
-        #print(midpoint_x_list)
-        #print(midpoint_y_list)
-        #print('----------------')
 
         if len(self.trayectory_points_x) == 0 and len(midpoint_x_list) > 0:
-            x_new, y_new = self.append_first_point(np.array(midpoint_x_list), np.array(midpoint_y_list))
-            self.append_new_points(x_new, y_new)
+            self.trayectory_points_x.append(self.x)
+            self.trayectory_points_y.append(self.y)
+            self.append_new_points(np.array(midpoint_x_list), np.array(midpoint_y_list))
         elif len(midpoint_x_list) > 0:
             x_new, y_new = self.clear_points(midpoint_x_list, midpoint_y_list)
             self.append_new_points(np.array(x_new), np.array(y_new))
@@ -115,7 +122,6 @@ class Path_planning(object):
             rax = self.trayectory_points_x
             ray = self.trayectory_points_y
         elif len(self.trayectory_points_x) <= self.degree:
-            #print(self.trayectory_points_x, self.trayectory_points_y)
             rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, len(self.trayectory_points_x)-1)
         else:
             rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, self.degree)
@@ -124,10 +130,190 @@ class Path_planning(object):
         self.update_path(rax, ray)
 
     def midpoint(self, yellow, blue):
+        '''
+        Funcion que devuelve el punto medio entre las coordenadas de un cono amarillo y otro azul.
+
+        :param yellow: Coordenadas locales del cono amarillo
+        :param blue: Coordenadas locales del cono azul
+        :return: Coordenadas globales del punto medio
+        '''
         midpoint_x = (yellow.x + blue.x) / 2.0
         midpoint_y = (yellow.y + blue.y) / 2.0
         midpoint_x, midpoint_y = self.local_to_global(midpoint_x, midpoint_y)
         return midpoint_x, midpoint_y
+
+    def approximate_b_spline_path(self, x, y, n_path_points, degree):
+        """
+        Aproximar los puntos mediante una B-Spline.
+
+        :param x: Lista de puntos que debe seguir en el eje x
+        :param y: Lista de puntos que debe seguir en el eje y
+        :param n_path_points: Numero de puntos totales para la trayectoria
+        :param degree: (Opcional) Grado de la curva B Spline
+        :return: Listas de los puntos en el eje x e y de la trayectoria final
+        """
+        t = range(len(x))
+        x_tup = scipy_interpolate.splrep(t, x, k=degree)
+        y_tup = scipy_interpolate.splrep(t, y, k=degree)
+
+        x_list = list(x_tup)
+        x_list[1] = x
+
+        y_list = list(y_tup)
+        y_list[1] = y
+
+        ipl_t = np.linspace(0.0, len(x) - 1, n_path_points)
+        rx = scipy_interpolate.splev(ipl_t, x_list)
+        ry = scipy_interpolate.splev(ipl_t, y_list)
+
+        return rx, ry
+
+    def append_new_points(self, x, y):
+        '''
+        Anade a la lista de puntos de la trayectoria los nuevos puntos medios, ordenados segun la distancia al ultimo
+        punto anadido
+
+        :param x: Lista de puntos medios en coordenadas globales en el eje x a anadir
+        :param y: Lista de puntos medios en coordenadas globales en el eje y a anadir
+        '''
+        loop = len(x)
+        for i in range(loop):
+            last_position = np.array([(self.trayectory_points_x[-1], self.trayectory_points_y[-1])])
+            rx = x.reshape(-1, 1)
+            ry = y.reshape(-1, 1)
+            cone_positions = np.hstack((rx, ry))
+            distances = cdist(last_position, cone_positions, 'euclidean')
+            distances = distances.reshape(-1, )
+            index_min = np.argmin(distances)
+            self.trayectory_points_x.append(x[index_min])
+            self.trayectory_points_y.append(y[index_min])
+            x = np.delete(x, index_min)
+            y = np.delete(y, index_min)
+
+    def clear_points(self, x, y):
+        '''
+        Elimina los puntos medios que esten mas cerca entre si que el CLEAR_THRESHOLD. Elimina la posicion inicial del
+        coche cuando haya superado POINT_NUMBER puntos de trayectoria.
+
+        :param x: Lista de puntos medios en coordenadas globales en el eje x a anadir
+        :param y: Lista de puntos medios en coordenadas globales en el eje y a anadir
+        :return: Lista de puntos medios de los ejes x e y filtrados
+        '''
+        x_new = []
+        y_new = []
+
+        trayectory_points_x = np.array(self.trayectory_points_x)
+        trayectory_points_y = np.array(self.trayectory_points_y)
+        trayectory_points_x = trayectory_points_x.reshape(-1, 1)
+        trayectory_points_y = trayectory_points_y.reshape(-1, 1)
+
+        for i in range(len(x)):
+            trayectory_points = np.hstack((trayectory_points_x, trayectory_points_y))
+            position = np.array([(x[i], y[i])])
+            distances = cdist(position, trayectory_points, 'euclidean')
+            distances = distances.reshape(-1, )
+            index_min = np.argmin(distances)
+
+            if len(self.trayectory_points_x) > self.POINT_NUMBER and self.deleted_initial_point is False:
+                self.trayectory_points_x.pop(0)
+                self.trayectory_points_y.pop(0)
+                self.deleted_initial_point = True
+
+            if distances[0] <= self.CLEAR_THRESHOLD and len(self.trayectory_points_x) > self.POINT_NUMBER:
+                self.finished_lap = True
+                x_new.append(x[i])
+                y_new.append(y[i])
+                # print('FINISHED LAP')
+            elif distances[index_min] >= self.CLEAR_THRESHOLD:
+                x_new.append(x[i])
+                y_new.append(y[i])
+                np.append(trayectory_points_x, x[i])
+                np.append(trayectory_points_y, y[i])
+
+        return x_new, y_new
+
+    def reorganize_trayectory(self):
+        '''
+        Elimina los puntos de la trayectoria que esten a una distancia REORGANIZE_THRESHOLD del coche
+
+        :return:
+        '''
+        car_position = np.array([(self.x, self.y)])
+        trayectory_points_x = np.array(self.trayectory_points_x)
+        trayectory_points_y = np.array(self.trayectory_points_y)
+        trayectory_points_x = trayectory_points_x.reshape(-1, 1)
+        trayectory_points_y = trayectory_points_y.reshape(-1, 1)
+        trayectory_points = np.hstack((trayectory_points_x, trayectory_points_y))
+        distances = cdist(car_position, trayectory_points, 'euclidean')
+        distances = distances.reshape(-1, )
+
+        x_new = []
+        y_new = []
+        index = 0
+
+        for i in range(1, len(distances)):
+            if distances[i] <= self.REORGANIZE_THRESHOLD:
+                index = i
+                break
+
+        if index != 0:
+            for i in range(index, len(distances)):
+                x_new.append(self.trayectory_points_x.pop(index))
+                y_new.append(self.trayectory_points_y.pop(index))
+
+        self.append_new_points(np.array(x_new), np.array(y_new))
+
+    def local_to_global(self, x, y):
+        position = np.array([x, y])
+        C_ns = np.array([[np.cos(self.yaw), -np.sin(self.yaw)], [np.sin(self.yaw), np.cos(self.yaw)]])
+        rotated_position = C_ns.dot(position) + np.array([self.x, self.y])
+
+        #d, angle = self.definir_posicion(x, y)
+
+        # calculamos el seno y el coseno del angulo del coche mas el de la observacion
+        #s = math.sin(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
+        #c = math.cos(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
+
+        # se anaden la x y la y correspondientes a la lista de landmarks
+        #x = self.x + d * c
+        #y = self.y + d * s
+
+        return rotated_position[0], rotated_position[1]
+
+    def pi_2_pi(self, angle):
+        return (angle + math.pi) % (2 * math.pi) - math.pi
+
+    def update_car_position(self, pose):
+        self.x = pose.position.x
+        self.y = pose.position.y
+        #print('----------------')
+        #print('Path planning', self.yaw)
+        self.yaw = self.pi_2_pi(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
+        #print('Path planning', self.yaw)
+        #self.yaw = pose.orientation.z
+
+    def update_path(self, x, y):
+        path = Path()
+        path.header.stamp = rospy.Time.now()
+        path.header.frame_id = "map"
+        for i in range(len(x)):
+            pose = PoseStamped()
+            pose.header.stamp = rospy.Time.now()
+            point = Point()
+            point.x = x[i]
+            point.y = y[i]
+            point.z = 0.0
+            pose.pose.position = point
+            orientation = Quaternion()
+            # Suponiendo roll y pitch = 0
+            orientation.x = 0.0
+            orientation.y = 0.0
+            orientation.z = 0.0
+            orientation.w = 1.0
+            pose.pose.orientation = orientation
+            path.poses.append(pose)
+
+        self.path = path
 
     def marker_array_path_planning(self, midpoint_x_list, midpoint_y_list):
         # Publish it as a marker in rviz
@@ -159,181 +345,6 @@ class Path_planning(object):
             marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.2, 0.2, 0.8)
             self.marker_ests.markers.append(marker_est)
 
-    def local_to_global(self, x, y):
-        position = np.array([x, y])
-        C_ns = np.array([[np.cos(self.yaw), -np.sin(self.yaw)], [np.sin(self.yaw), np.cos(self.yaw)]])
-        rotated_position = C_ns.dot(position) + np.array([self.x, self.y])
-
-        #d, angle = self.definir_posicion(x, y)
-
-        # calculamos el seno y el coseno del angulo del coche mas el de la observacion
-        #s = math.sin(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
-        #c = math.cos(self.pi_2_pi(self.yaw + self.pi_2_pi(angle)))
-
-        # se anaden la x y la y correspondientes a la lista de landmarks
-        #x = self.x + d * c
-        #y = self.y + d * s
-
-        return rotated_position[0], rotated_position[1]
-
-    def pi_2_pi(self, angle):
-        return (angle + math.pi) % (2 * math.pi) - math.pi
-
-    def definir_posicion(self, x, y):
-        d = math.hypot(x, y)
-        angle = self.pi_2_pi(math.atan2(y, x))
-        return d, angle
-
-    def update_car_position(self, pose):
-        self.x = pose.position.x
-        self.y = pose.position.y
-        #print('----------------')
-        #print('Path planning', self.yaw)
-        self.yaw = self.pi_2_pi(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
-        #print('Path planning', self.yaw)
-        #self.yaw = pose.orientation.z
-
-    def approximate_b_spline_path(self, x, y, n_path_points, degree):
-        """
-        approximate points with a B-Spline path
-        :param x: x position list of approximated points
-        :param y: y position list of approximated points
-        :param n_path_points: number of path points
-        :param degree: (Optional) B Spline curve degree
-        :return: x and y position list of the result path
-        """
-        t = range(len(x))
-        x_tup = scipy_interpolate.splrep(t, x, k=degree)
-        y_tup = scipy_interpolate.splrep(t, y, k=degree)
-
-        x_list = list(x_tup)
-        x_list[1] = x
-
-        y_list = list(y_tup)
-        y_list[1] = y
-
-        ipl_t = np.linspace(0.0, len(x) - 1, n_path_points)
-        rx = scipy_interpolate.splev(ipl_t, x_list)
-        ry = scipy_interpolate.splev(ipl_t, y_list)
-
-        return rx, ry
-
-    def append_first_point(self, x, y):
-        car_position = np.array([(self.x, self.y)])
-        rx = x.reshape(-1, 1)
-        ry = y.reshape(-1, 1)
-        cone_positions = np.hstack((rx, ry))
-        distances = cdist(car_position, cone_positions, 'euclidean')
-        distances = distances.reshape(-1, )
-        index_min = np.argmin(distances)
-        self.trayectory_points_x.append(self.x)
-        self.trayectory_points_y.append(self.y)
-        self.trayectory_points_x.append(x[index_min])
-        self.trayectory_points_y.append(y[index_min])
-        x = np.delete(x, index_min)
-        y = np.delete(y, index_min)
-
-        return x, y
-
-    def append_new_points(self, x, y):
-        loop = len(x)
-        for i in range(loop):
-            last_position = np.array([(self.trayectory_points_x[-1], self.trayectory_points_y[-1])])
-            rx = x.reshape(-1, 1)
-            ry = y.reshape(-1, 1)
-            cone_positions = np.hstack((rx, ry))
-            distances = cdist(last_position, cone_positions, 'euclidean')
-            distances = distances.reshape(-1, )
-            index_min = np.argmin(distances)
-            self.trayectory_points_x.append(x[index_min])
-            self.trayectory_points_y.append(y[index_min])
-            x = np.delete(x, index_min)
-            y = np.delete(y, index_min)
-
-    def clear_points(self, x, y):
-        # Lista de los puntos de la trayectoria que ya tenemos
-        x_new = []
-        y_new = []
-
-        trayectory_points_x = np.array(self.trayectory_points_x)
-        trayectory_points_y = np.array(self.trayectory_points_y)
-        trayectory_points_x = trayectory_points_x.reshape(-1, 1)
-        trayectory_points_y = trayectory_points_y.reshape(-1, 1)
-
-        for i in range(len(x)):
-            trayectory_points = np.hstack((trayectory_points_x, trayectory_points_y))
-            position = np.array([(x[i], y[i])])
-            distances = cdist(position, trayectory_points, 'euclidean')
-            distances = distances.reshape(-1, )
-            index_min = np.argmin(distances)
-
-            if len(self.trayectory_points_x) > self.POINT_NUMBER and self.deleted_initial_point is False:
-                self.trayectory_points_x.pop(0)
-                self.trayectory_points_y.pop(0)
-                self.deleted_initial_point = True
-
-            if distances[0] <= self.CLEAR_THRESHOLD and len(self.trayectory_points_x) > self.POINT_NUMBER:
-                self.finished_lap = True
-                x_new.append(x[i])
-                y_new.append(y[i])
-                #print('FINISHED LAP')
-            elif distances[index_min] >= self.CLEAR_THRESHOLD:
-                x_new.append(x[i])
-                y_new.append(y[i])
-                np.append(trayectory_points_x, x[i])
-                np.append(trayectory_points_y, y[i])
-
-        return x_new, y_new
-
-    def update_path(self, x, y):
-        path = Path()
-        path.header.stamp = rospy.Time.now()
-        path.header.frame_id = "map"
-        for i in range(len(x)):
-            pose = PoseStamped()
-            pose.header.stamp = rospy.Time.now()
-            point = Point()
-            point.x = x[i]
-            point.y = y[i]
-            point.z = 0.0
-            pose.pose.position = point
-            orientation = Quaternion()
-            # Suponiendo roll y pitch = 0
-            orientation.x = 0.0
-            orientation.y = 0.0
-            orientation.z = 0.0
-            orientation.w = 1.0
-            pose.pose.orientation = orientation
-            path.poses.append(pose)
-
-        self.path = path
-
-    def reorganize_trayectory(self):
-        car_position = np.array([(self.x, self.y)])
-        trayectory_points_x = np.array(self.trayectory_points_x)
-        trayectory_points_y = np.array(self.trayectory_points_y)
-        trayectory_points_x = trayectory_points_x.reshape(-1, 1)
-        trayectory_points_y = trayectory_points_y.reshape(-1, 1)
-        trayectory_points = np.hstack((trayectory_points_x, trayectory_points_y))
-        distances = cdist(car_position, trayectory_points, 'euclidean')
-        distances = distances.reshape(-1, )
-
-        x_new = []
-        y_new = []
-        index = 0
-
-        for i in range(1, len(distances)):
-            if distances[i] <= self.REORGANIZE_THRESHOLD:
-                index = i
-                break
-
-        if index != 0:
-            for i in range(index, len(distances)):
-                x_new.append(self.trayectory_points_x.pop(index))
-                y_new.append(self.trayectory_points_y.pop(index))
-
-        self.append_new_points(np.array(x_new), np.array(y_new))
-
 class Path_planning_class(object):
     def __init__(self):
         self.path_planning = Path_planning()
@@ -363,7 +374,7 @@ class Path_planning_class(object):
         cones_blue = msg.blue_cones
         cones_orange = msg.big_orange_cones
         if not self.path_planning.finished_lap:
-            self.path_planning.bucle_principal(cones_yellow, cones_blue, cones_orange, timestamp)
+            self.path_planning.bucle_principal(cones_yellow, cones_blue, cones_orange)
 
 
 if __name__ == '__main__':
