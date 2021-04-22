@@ -10,7 +10,6 @@ from eufs_msgs.msg import WheelSpeedsStamped
 from visualization_msgs.msg import MarkerArray, Marker
 
 class Gps():
-
   def __init__(self):
     self.a = 6378137
     self.b = 6356752.3142
@@ -84,7 +83,6 @@ class Gps():
 class Car():
 
     def __init__(self):
-         # super(Car, self).__init__() No hay herencia
         self.p_est = np.zeros(2)
         self.v_est = np.zeros(2)
         self.q_est = 0.0

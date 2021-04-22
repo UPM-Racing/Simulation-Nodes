@@ -36,7 +36,7 @@ if __name__ == '__main__':
     rospy.init_node('ground_path_node', anonymous=True)
     real_path_class = RealPathClass()
     #rospy.spin()
-    rate = rospy.Rate(10)  # Hz
+    rate = rospy.Rate(50)  # Hz
 
     while not rospy.is_shutdown():
         real_path_class.ground_path_pub.publish(real_path_class.real_path)

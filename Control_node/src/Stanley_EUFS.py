@@ -15,7 +15,7 @@ Kp = 1.0                                    # speed proportional gain
 ki = 1.0                                    # speed integral gain
 kd = 0.1                                    # speed derivational gain
 dt = 0.1                                    # [s] time difference
-target_speed = 5.0 / 3.6                   # [m/s]
+target_speed = 10.0 / 3.6                   # [m/s]
 Ke = 5                                      # control gain
 Kv = 1
 max_steer = 27.2 * np.pi / 180              # [rad] max steering angle
@@ -175,7 +175,7 @@ class State(object):
         self.state_sub = rospy.Subscriber('/ros_can/state', CanState, self.callbackstate)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
         # self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
-        #self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
+        # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
         self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
 
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
@@ -206,7 +206,7 @@ class State(object):
 if __name__ == '__main__':
     rospy.init_node('stanley', anonymous=True)
     state = State()
-    rate = rospy.Rate(50)    # Hz
+    rate = rospy.Rate(200)    # Hz
     show_animation = False   # To decide if we want to graph the error
 
     while not rospy.is_shutdown():
