@@ -29,10 +29,10 @@ class Path_planning(object):
         self.path = Path()
 
         ''' Parametros configurables '''
-        # Threshold de distancia entre conos
+        # Thresholds de distancia entre conos
         self.THRESHOLD = 5.5
         self.ORANGE_THRESHOLD = 2.5
-        self.FINISH_THRESHOLD = 1.0
+        self.FINISH_THRESHOLD = 1.5
         self.POINT_NUMBER = 20.0
         self.MAX_RANGE = 10
 
@@ -117,6 +117,14 @@ class Path_planning(object):
         return np.hstack((x, y))
 
     def calculate_distances(self, position_x, position_y, points):
+        '''
+        Calcula las distancias de un punto a una lista de puntos
+
+        :param position_x: Posicion x del punto a comparar
+        :param position_y: Posicion y del punto a comparar
+        :param points: Lista de puntos a comparar
+        :return: Array de distancias del punto a la lista de puntos
+        '''
         position = np.array([(position_x, position_y)])
         distances = cdist(position, points, 'euclidean')
         distances = distances.reshape(-1, )
@@ -225,6 +233,7 @@ class Path_planning(object):
                     x_new.append(self.trayectory_points_x[0])
                     y_new.append(self.trayectory_points_y[0])
                     # print('FINISHED LAP')
+                    break
 
         if len(self.trayectory_points_x) > self.POINT_NUMBER and self.deleted_initial_point is False:
             self.trayectory_points_x.pop(0)
