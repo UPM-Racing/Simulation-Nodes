@@ -7,7 +7,6 @@ from eufs_msgs.msg import ConeArrayWithCovariance
 from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamped
 from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray, Marker
-from eufs_msgs.msg import WheelSpeedsStamped
 from sensor_msgs.msg import NavSatFix
 from ackermann_msgs.msg import AckermannDriveStamped
 
