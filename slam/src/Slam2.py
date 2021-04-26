@@ -130,6 +130,7 @@ class Gps():
 
         return x, y
 
+
 class Particle:
     def __init__(self, n_landmark):
         # Estado del coche y landmarks en la particula
@@ -157,6 +158,7 @@ class Particle:
         self.lm = np.vstack((self.lm, v_add))
         self.lmP = np.vstack((self.lmP, v_add_cov))
 
+
 class FastSLAM:
     def __init__(self):
         ''' Variables no configurables '''
@@ -170,15 +172,17 @@ class FastSLAM:
         self.DT = 0.0
         self.u = np.zeros((2, 1))
         self.total_landmarks = 0
-        # self.state_x = 0.0
-        # self.state_y = 0.0
-        # self.state_yaw = 0.0
         self.path = Path()
         self.pose = PoseStamped()
         self.marker_ests = MarkerArray()
         self.slam_marker_ests = MarkerArray()
         self.h_jac = np.zeros([2, 3])
-        self.h_jac[:, :2] = np.eye(2)  # measurement model jacobian
+        self.h_jac[:, :2] = np.eye(2)  # Jacobiano del modelo cinematico
+
+        # Variables no usadas en principio
+        self.state_x = 0.0
+        self.state_y = 0.0
+        self.state_yaw = 0.0
 
         # Se crean las particulas vacias para que se expandan con la llegada de landmarks
         self.particles = [Particle(0) for _ in range(N_PARTICLE)]
@@ -208,8 +212,8 @@ class FastSLAM:
         landmarks_x, landmarks_y = self.calc_final_lm_position(self.particles)
 
         z = np.zeros((3, 0))
-        cones_x = []
-        cones_y = []
+        # cones_x = []
+        # cones_y = []
 
         for i, cone in enumerate(landmarks):
             # Cuando no hay landmarks todavia (al inicio)
@@ -219,8 +223,8 @@ class FastSLAM:
                 self.total_landmarks += 1
             else:
                 x, y = self.local_to_global(cone.point.x, cone.point.y)
-                cones_x.append(x)
-                cones_y.append(y)
+                # cones_x.append(x)
+                # cones_y.append(y)
                 new_landmark_position = np.array([(x, y)])
                 landmarks_x = landmarks_x.reshape(-1, 1)
                 landmarks_y = landmarks_y.reshape(-1, 1)
@@ -469,9 +473,9 @@ class FastSLAM:
         """
         Calculo del peso de la particula (se multiplica luego por el peso anterior)
 
-        :param particle: Particula con el vector de estado actualizado
         :param z: Una observacion [distancia, angulo, landmark_id]
-        :param Q_cov: Matriz de covarianza de las observaciones de los conos
+        :param zp: Distancia y angulo esperada del coche a un landmark globales [distancia, angulo]
+        :param Sf: Covarianza de las medidas
         :return: El peso de la particula
         """
         # La diferencia entre z y zp
@@ -502,7 +506,7 @@ class FastSLAM:
         :param Pf: Covarianza almacenada del landmark
         :param Q_cov: Matriz de covarianza de las observaciones de los conos
         :return:
-            zp: distancia y angulo esperada del coche a un landmark globales [distancia, angulo]
+            zp: Distancia y angulo esperada del coche a un landmark globales [distancia, angulo]
             Hv: Jacobiano del vector de estado del coche
             Hf: Jacobiano de los landmarks
             Sf: Covarianza de las medidas
@@ -532,9 +536,11 @@ class FastSLAM:
         """
         Actualiza la posicion y covarianza de un landmark guardado de acuerdo con las nuevas observaciones.
 
-        :param particle: Particula con el vector de estado actualizado
         :param z: Una observacion [distancia, angulo, landmark_id]
-        :param Q_cov: Matriz de covarianza de las observaciones de los conos
+        :param zp: Distancia y angulo esperada del coche a un landmark globales [distancia, angulo]
+        :param xf: Posicion almacenada del landmark
+        :param Pf: Covarianza almacenada del landmark
+        :param Hf: Jacobiano de los landmarks
         :return: Particula con el vector de estado y covarianzas actualizadas
         """
         # Obtiene el landmark id y la x y la y guardadas en lm
@@ -658,14 +664,13 @@ class FastSLAM:
 
         particles = self.normalize_weight(particles)
 
-        # media de todas las posiciones con sus pesos
+        # Media de todas las posiciones con sus pesos
         for i in range(N_PARTICLE):
             xEst[0, 0] += particles[i].w * particles[i].x
             xEst[1, 0] += particles[i].w * particles[i].y
             xEst[2, 0] += particles[i].w * particles[i].yaw
 
         xEst[2, 0] = self.pi_2_pi(xEst[2, 0])
-        #  print(xEst)
 
         return xEst
 
@@ -681,7 +686,7 @@ class FastSLAM:
 
         particles = self.normalize_weight(particles)
 
-        # media de todas las posiciones con sus pesos
+        # Media de todas las posiciones con sus pesos
         for j in range(self.total_landmarks):
             xEst = 0.0
             yEst = 0.0
@@ -852,10 +857,10 @@ class FastSLAM:
         # Publish it as a marker in rviz
         self.slam_marker_ests.markers = []
 
-        # calcular las posiciones medias de los conos en las particulas
-        distances_x, distances_y = self.calc_final_lm_position(self.particles)
+        # Calcular las posiciones medias de los conos en las particulas
+        landmarks_x, landmarks_y = self.calc_final_lm_position(self.particles)
 
-        for i in range(len(distances_x)):
+        for i in range(len(landmarks_x)):
             marker_est = Marker()
             marker_est.header.frame_id = "map"
             marker_est.ns = "est_pose_" + str(i)
@@ -864,8 +869,8 @@ class FastSLAM:
             marker_est.action = Marker.ADD
             pose = Pose()
             point = Point()
-            point.x = distances_x[i]
-            point.y = distances_y[i]
+            point.x = landmarks_x[i]
+            point.y = landmarks_y[i]
             point.z = 0.4
             pose.position = point
             orientation = Quaternion()
@@ -924,7 +929,6 @@ class Slam_Class(object):
         # Subscribers para la correccion de la posicion
         if WITH_EKF:
             self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
-            # self.odom_sub = rospy.Subscriber('/odometry_pub', WheelSpeedsStamped, self.odom_callback)
 
         # Subscriber para la localizacion en coordenadas globales de los conos
         # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.state_estimation_callback)
@@ -952,12 +956,6 @@ class Slam_Class(object):
         velocity = [-msg.vector.y + 1*10**-12, msg.vector.x]
         velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
         self.fast_slam.update_car_gps_vel(velocity_mean)
-
-    def odom_callback(self, msg):
-        velocity_rpm = (msg.lb_speed + msg.rb_speed) / 2
-        velocity_mean = (velocity_rpm * 2 * math.pi * self.fast_slam.radio) / 60
-
-        # self.fast_slam.updateStepVel(velocity_mean)
 
     def gps_callback(self, msg):
         latitude = msg.latitude
