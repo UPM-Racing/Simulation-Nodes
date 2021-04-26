@@ -395,12 +395,13 @@ class FastSLAM:
 
     def proposal_sampling(self, particle, z, Q_cov):
         '''
-
+        Actualiza el estado de la particula calculando una covarianza y media, teniendo en cuenta la diferencia entre
+        el landmark y la nueva observacion.
 
         :param particle: Particula con el vector de estado y landmarks actualizadas
         :param z: Una observacion detectada  [distancia, angulo, landmark_id]
-        :param Q_cov:
-        :return:
+        :param Q_cov: Matriz de covarianza de las observaciones de los conos
+        :return: Particula con el estado actualizado
         '''
         lm_id = int(z[2])
         xf = np.array(particle.lm[lm_id, :]).reshape(2, 1)
@@ -410,11 +411,15 @@ class FastSLAM:
         P = particle.P
         zp, Hv, Hf, Sf = self.compute_jacobians(particle, xf, Pf, Q_cov)
 
-        Sfi = np.linalg.inv(Sf)
+        try:
+            Sfi = np.linalg.inv(Sf)
+            Pi = np.linalg.inv(P)
+        except np.linalg.linalg.LinAlgError:
+            print("singular")
+            return 1.0
+
         dz = z[0:2].reshape(2, 1) - zp
         dz[1, 0] = self.pi_2_pi(dz[1, 0])
-
-        Pi = np.linalg.inv(P)
 
         particle.P = np.linalg.inv(np.matmul(np.matmul(Hv.T, Sfi), Hv) + Pi)  # proposal covariance
         x += np.matmul(np.matmul(np.matmul(particle.P, Hv.T), Sfi), dz)  # proposal mean
