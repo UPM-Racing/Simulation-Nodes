@@ -6,7 +6,7 @@ import math
 import matplotlib.pyplot as plt
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Bool
-from geometry_msgs.msg import Vector3Stamped,PoseStamped
+from geometry_msgs.msg import Vector3Stamped, PoseStamped
 from nav_msgs.msg import Path
 import scipy.interpolate as scipy_interpolate
 from eufs_msgs.msg import CarState, CanState
@@ -19,6 +19,7 @@ target_speed = 10.0 / 3.6                   # [m/s]
 Ke = 5                                      # control gain
 Kv = 1
 max_steer = 27.2 * np.pi / 180              # [rad] max steering angle
+max_accel = 1.0                             # [m/s^2] max acceleration
 
 
 class Stanley(object):
@@ -61,7 +62,6 @@ class Stanley(object):
             self.ack_msg.drive.steering_angle = self.stanley_control(path_x, path_y)
             self.ack_msg.drive.acceleration = self.pid_control(target_speed)
 
-
     def interpolate_b_spline_path(self, x, y, n_path_points, degree):
         """
         interpolate points with a B-Spline path
@@ -81,7 +81,8 @@ class Stanley(object):
     def update_car_position(self, pose):
         self.x = pose.position.x
         self.y = pose.position.y
-        self.yaw = self.normalize_angle(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
+        self.yaw = self.normalize_angle(
+            np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
 
     def update_velocity(self, v):
         self.v = v
@@ -89,11 +90,11 @@ class Stanley(object):
     def pid_control(self, target):
         accel = Kp * (target - self.v) + ki * (target - self.v) * dt + kd * (
                 target - self.v) / dt
-        # Para que el freno sea por inercia, sin utilizar pedal:
-        if accel > 0:
-            return accel
-        else:
-            return 0
+        accel = np.clip(accel, 0, max_accel)        # Freno por inercia, maxima aceleracion 1 m/s^2
+
+        # print("Aceleracion: {}".format(accel))
+
+        return accel
 
     def stanley_control(self, path_x, path_y):
         self.contador = self.contador + 1
@@ -136,7 +137,7 @@ class Stanley(object):
         # Calculate mean deviation (MD = (1/n)*sum(error))
         self.mean_deviation = (self.mean_deviation * (self.contador - 1) + abs(error_front_axle)) * (self.contador ** (-1))
 
-        #print("Mean deviation: {}".format(self.mean_deviation))
+        # print("Mean deviation: {}".format(self.mean_deviation))
 
         return delta
 
@@ -172,11 +173,11 @@ class State(object):
     def __init__(self):
         self.stanley_class = Stanley()
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
-        self.state_sub = rospy.Subscriber('/ros_can/state', CanState, self.callbackstate)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
         # self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
         # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
         self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
+        self.state_sub = rospy.Subscriber('/ros_can/state', CanState, self.callbackstate)
 
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
