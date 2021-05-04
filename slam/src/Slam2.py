@@ -199,7 +199,8 @@ class FastSLAM:
 
     def bucle_principal(self, landmarks, time):
         '''
-        Bucle principal de actualizacion de las particulas. Se llama cada vez que llega un mensaje de conos.
+        Bucle principal de actualizacion de las particulas. Se llama cada vez que llega un mensaje de conos. Comprueba
+        si cada observacion corresponde a un cono ya guardado o es uno nuevo antes de llamar a la funcion de slam.
 
         :param landmarks: Lista de la posicion de todos los conos observables
         :param time: Instante de tiempo actual
@@ -236,6 +237,7 @@ class FastSLAM:
                 if diferencias[index_min] <= self.THRESHOLD:
                     index = index_min
                 else:
+
                     index = self.total_landmarks
                     self.expandir_particulas(1)
                     self.total_landmarks += 1
@@ -246,7 +248,7 @@ class FastSLAM:
             z = np.hstack((z, zi))
 
         self.particles = self.fast_slam2(self.particles, z)
-        xEst = self.calc_final_state(self.particles)
+        xEst = self.get_best_position(self.particles)
 
         self.x = xEst[0, 0]
         self.y = xEst[1, 0]
@@ -697,6 +699,32 @@ class FastSLAM:
 
         return np.array(landmarks_x), np.array(landmarks_y)
 
+    def get_best_position(self, particles):
+        '''
+        Calcula el estado del coche final cogiendo el de la particula con mejor peso.
+
+        :param particles: Particulas actualizadas
+        :return: Estado del coche final
+        '''
+        xEst = np.zeros((3, 1))
+
+        particles = self.normalize_weight(particles)
+        ind = 0
+        weight = 0.0
+
+        # Media de todas las posiciones con sus pesos
+        for i in range(N_PARTICLE):
+            if particles[i].w > weight:
+                ind = i
+
+        xEst[0, 0] = particles[ind].x
+        xEst[1, 0] = particles[ind].y
+        xEst[2, 0] = particles[ind].yaw
+
+        xEst[2, 0] = self.pi_2_pi(xEst[2, 0])
+
+        return xEst
+
     def updateStep(self, gps_coord):
         '''
         Actualiza la posicion de cada particula con un EKF a partir del mensaje del gps.
@@ -754,7 +782,7 @@ class FastSLAM:
         :param y: Valor en el eje y en coordenadas locales
         :return: Coordenadas globales del punto
         '''
-        xEst = self.calc_final_state(self.particles)
+        xEst = self.get_best_position(self.particles)
         position = np.array([x, y])
         C_ns = np.array([[np.cos(xEst[2, 0]), -np.sin(xEst[2, 0])], [np.sin(xEst[2, 0]), np.cos(xEst[2, 0])]])
         rotated_position = C_ns.dot(position) + np.array([xEst[0, 0], xEst[1, 0]])
@@ -766,63 +794,35 @@ class FastSLAM:
         Actualiza las variables que se mostraran en Rviz
 
         '''
-        # Bucle para obtener las particulas de mayor y menor peso para mostrarlas con color diferente en Rviz
-        marker_x_high = []
-        marker_y_high = []
-        marker_x_low = []
-        marker_y_low = []
+        # Bucle para obtener el maximo peso de todas las particulas para mostrarlas con color diferente en Rviz
+        max_weight = 0.0
+
         for particle in self.particles:
-            if particle.w > (0.9 / N_PARTICLE):
-                marker_x_high.append(particle.x)
-                marker_y_high.append(particle.y)
-            else:
-                marker_x_low.append(particle.x)
-                marker_y_low.append(particle.y)
+            if particle.w > max_weight:
+                max_weight = particle.w
 
         # Funciones para Rviz
-        self.marker_array(marker_x_high, marker_y_high, marker_x_low, marker_y_low)
+        self.marker_array(max_weight)
         self.marker_array_slam()
         self.publish_path()
 
-    def marker_array(self, particles_x, particles_y, particles_x_low, particles_y_low):
+    def marker_array(self, max_weight):
         '''
-        MarkerArray para actualizar y mostrar en Rviz los estados de las particulas. En rojo estan las particulas con
-        pesos mas bajos y en azul los pesos mas altos.
+        MarkerArray para actualizar y mostrar en Rviz los estados de las particulas. En amarillo estan las particulas con
+        pesos mas bajos y en verde los pesos mas altos.
 
-        :param particles_x: Posicion x de las particulas con alto peso
-        :param particles_y: Posicion y de las particulas con alto peso
-        :param particles_x_low: Posicion x de las particulas con bajo peso
-        :param particles_y_low: Posicion y de las particulas con bajo peso
+        :param max_weight: Maximo peso de todas las particulas
         '''
+
+        '''Verde constante en 255 y rojo en 0 para los mejores y 255 para los peores usando el peso mas alto y mas bajo'''
         # Publish it as a marker in rviz
         self.marker_ests.markers = []
-        for i in range(len(particles_x)):
-            marker_est = Marker()
-            marker_est.header.frame_id = "map"
-            marker_est.ns = "est_pose_" + str(i)
-            marker_est.id = i
-            marker_est.type = Marker.CYLINDER
-            marker_est.action = Marker.ADD
-            pose = Pose()
-            point = Point()
-            point.x = particles_x[i]
-            point.y = particles_y[i]
-            point.z = 0.2
-            pose.position = point
-            orientation = Quaternion()
-            # Suponiendo roll y pitch = 0
-            orientation.x = 0.0
-            orientation.y = 0.0
-            orientation.z = 0.0
-            orientation.w = 1.0
-            pose.orientation = orientation
-            marker_est.pose = pose
-            marker_est.color.r, marker_est.color.g, marker_est.color.b = (0, 0, 255)
-            marker_est.color.a = 0.5
-            marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.1, 0.1, 0.4)
-            self.marker_ests.markers.append(marker_est)
+        for i, particle in enumerate(self.particles):
+            if max_weight == 0:
+                value = 0
+            else:
+                value = 255 * (1 - particle.w / max_weight)
 
-        for i in range(len(particles_x_low)):
             marker_est = Marker()
             marker_est.header.frame_id = "map"
             marker_est.ns = "est_pose_" + str(i)
@@ -831,8 +831,8 @@ class FastSLAM:
             marker_est.action = Marker.ADD
             pose = Pose()
             point = Point()
-            point.x = particles_x_low[i]
-            point.y = particles_y_low[i]
+            point.x = particle.x
+            point.y = particle.y
             point.z = 0.2
             pose.position = point
             orientation = Quaternion()
@@ -843,14 +843,14 @@ class FastSLAM:
             orientation.w = 1.0
             pose.orientation = orientation
             marker_est.pose = pose
-            marker_est.color.r, marker_est.color.g, marker_est.color.b = (255, 0, 0)
+            marker_est.color.r, marker_est.color.g, marker_est.color.b = (value, 255, 0)
             marker_est.color.a = 0.5
-            marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.1, 0.1, 0.4)
+            marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.05, 0.05, 0.4)
             self.marker_ests.markers.append(marker_est)
 
     def marker_array_slam(self):
         '''
-        MarkerArray para actualizar y mostrar en Rviz la posicion de los conos que estan guardados
+        MarkerArray para actualizar y mostrar en Rviz la posicion de los conos que estan guardados.
 
         '''
         # Publish it as a marker in rviz
