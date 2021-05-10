@@ -2,44 +2,59 @@
 import rospy
 import math
 import numpy as np
-from eufs_msgs.msg import ConeArrayWithCovariance, CarState
+from eufs_msgs.msg import ConeArrayWithCovariance
 from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamped
 from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray, Marker
-from eufs_msgs.msg import WheelSpeedsStamped
-from sensor_msgs.msg import Imu
 from ackermann_msgs.msg import AckermannDriveStamped
 
 class EKFSLAM:
     def __init__(self):
-        self.past_time = 0.0
+        ''' Variables no configurables '''
+        # Estado del coche
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
+        self.xEst = np.zeros((3, 1))
+        self.PEst = np.eye(3)
+
+        # Inicializacion de variables
+        self.past_time = 0.0
         self.DT = 0.0
-        self.THRESHOLD = 1.0
-        self.cones_x = []
-        self.cones_y = []
-        self.marker_ests = MarkerArray()
-        self.total_landmarks = 0
         self.u = np.zeros((2, 1))
         self.path = Path()
         self.pose = PoseStamped()
-        self.wheelbase = 1.58
+        self.marker_ests = MarkerArray()
+        self.slam_marker_ests = MarkerArray()
+        self.h_jac = np.zeros([2, 3])
+        self.h_jac[:, :2] = np.eye(2)  # Jacobiano del modelo cinematico
 
-        # Constants
-        # EKF state covariance
+        # Variables no usadas en principio
+        self.state_x = 0.0
+        self.state_y = 0.0
+        self.state_yaw = 0.0
+
+        ''' Variables configurables '''
+        # Datos del coche
+        self.radio = 0.2525  # Radio de la rueda del coche
+        self.wheelbase = 1.58  # Distancia entre ejes del coche
+        self.lr = 0.711  # Distancia del centro de gravedad al eje trasero del coche
+
+        # Constantes para EKF SLAM
         self.Cx = np.diag([0.5, 0.5, np.deg2rad(30.0)]) ** 2
-
+        self.THRESHOLD = 1.0
         self.M_DIST_TH = 0.3  # Threshold of Mahalanobis distance for data association.
         self.STATE_SIZE = 3  # State size [x,y,yaw]
         self.LM_SIZE = 2  # LM state size [x,y]
 
-        # State Vector [x y yaw v]'
-        self.xEst = np.zeros((self.STATE_SIZE, 1))
-        self.PEst = np.eye(self.STATE_SIZE)
-
     def bucle_principal(self, cones, time):
+        '''
+        Bucle principal de actualizacion del estado del coche. Se llama cada vez que llega un mensaje de conos. Crea el
+        vector de distancias y angulos locales a las observaciones y llama a la funcion de slam.
+
+        :param cones: Lista de la posicion de todos los conos observables
+        :param time: Instante de tiempo actual
+        '''
         self.DT = time - self.past_time
         self.past_time = time
 
@@ -49,36 +64,26 @@ class EKFSLAM:
             d, angle = self.definir_posicion(cone.point.x, cone.point.y)
             zi = np.array([d, angle])
             z = np.vstack((z, zi))
-            #print(cone.point.x, cone.point.y)
-
-        #print(self.u)
 
         self.xEst, self.PEst = self.ekf_slam(self.xEst, self.PEst, self.u, z)
-
-        #print(self.xEst)
-        #print('----------------------')
 
         self.x = self.xEst[0]
         self.y = self.xEst[1]
         self.yaw = self.xEst[2]
-        #print('yaw: ' + str(self.yaw * 360 / (2 * math.pi)))
-        #print('u' + str(self.u))
 
-        self.cones_x = []
-        self.cones_y = []
-
-        #print(self.calc_n_lm(self.xEst))
-
-        # visible landmark
-        for i in range(self.calc_n_lm(self.xEst)):
-            self.cones_x.append(self.xEst[3 + i * 2])
-            self.cones_y.append(self.xEst[3 + i * 2 + 1])
-
-        #self.marker_array_slam()
-        self.marker_array(self.cones_x, self.cones_y)
-        self.publish_path()
+        self.rviz_update()
 
     def ekf_slam(self, xEst, PEst, u, z):
+        '''
+        Funcion global de EKF SLAM. Calcula el nuevo estado del coche, y lo ajusta segun las nuevas observaciones,
+        comprobando si son nuevos landmarks o landmarks ya guardados.
+
+        :param xEst: Vector de estado del coche y landmarks
+        :param PEst: Matriz de covarianzas del coche y landmarks
+        :param u: Vector de entrada al modelo [velocidad, giro de volante]
+        :param z: Vector con las distancias y angulos locales con las que el coche ve las observaciones
+        :return: Vector de estado del coche y landmarks y matriz de covarianzas del coche y landmarks actualizados
+        '''
         # Predict
         S = self.STATE_SIZE
         G, Fx = self.jacob_motion(xEst[0:S], u)
@@ -99,7 +104,6 @@ class EKFSLAM:
                                   np.hstack((np.zeros((self.LM_SIZE, len(xEst))), initP))))
                 xEst = xAug
                 PEst = PAug
-                #print(nLM)
             lm = self.get_landmark_position_from_state(xEst, min_id)
             y, S, H = self.calc_innovation(lm, xEst, PEst, z[iz, 0:2], min_id)
 
@@ -112,17 +116,30 @@ class EKFSLAM:
         return xEst, PEst
 
     def definir_posicion(self, x, y):
+        '''
+        Funcion que devuelve la distancia y angulo en coordenadas locales de un punto.
+
+        :param x: Coordenada x en locales de un punto
+        :param y: Coordenada y en locales de un punto
+        :return: Distancia y angulo al punto
+        '''
         d = math.hypot(x, y)
         angle = self.pi_2_pi(math.atan2(y, x))
         return d, angle
 
     def motion_model(self, x, u):
-        lr = 0.711
-        beta = math.atan2(lr * math.tan(u[1, 0]), self.wheelbase)
+        '''
+        Modelo cinematico basado en el kinematic bicycle model del coche.
+
+        :param x: Vector de estado del coche anterior
+        :param u: Vector de entrada al modelo [velocidad, giro de volante]
+        :return: Vector de estado del coche y landmarks con el estado del coche actualizado
+        '''
+        beta = math.atan2(self.lr * math.tan(u[1, 0]), self.wheelbase)
 
         x_dot = u[0, 0] * math.cos(x[2, 0] + beta)
         y_dot = u[0, 0] * math.sin(x[2, 0] + beta)
-        yaw_dot = u[0, 0] * math.sin(beta) / lr
+        yaw_dot = u[0, 0] * math.sin(beta) / self.lr
 
         x[0, 0] = x[0, 0] + x_dot * self.DT
         x[1, 0] = x[1, 0] + y_dot * self.DT
@@ -133,10 +150,23 @@ class EKFSLAM:
         return x
 
     def calc_n_lm(self, x):
+        '''
+        Calcula el numero de landmarks almacenados en x.
+
+        :param x: Vector de estado del coche y landmarks
+        :return: Numero de landmarks almacenados en x
+        '''
         n = int((len(x) - self.STATE_SIZE) / self.LM_SIZE)
         return n
 
     def jacob_motion(self, x, u):
+        '''
+        Calcula los jacobianos del modelo del coche
+
+        :param x: Vector de estado del coche
+        :param u: Vector de entrada al modelo [velocidad, giro de volante]
+        :return:
+        '''
         Fx = np.hstack((np.eye(self.STATE_SIZE), np.zeros((self.STATE_SIZE, self.LM_SIZE * self.calc_n_lm(x)))))
 
         jF = np.array([[0.0, 0.0, -self.DT * u[0, 0] * math.sin(x[2, 0])],
@@ -145,33 +175,44 @@ class EKFSLAM:
 
         G = np.eye(self.STATE_SIZE) + np.matmul(np.matmul(Fx.T, jF), Fx)
 
-        return G, Fx,
+        return G, Fx
 
     def calc_landmark_position(self, x, z):
-        zp = np.zeros((2, 1))
+        '''
+        Calcula la posicion en ejes globales de un landmark.
 
-        #print(x[0:3, 0])
+        :param x: Vector de estado del coche y landmarks en ejes globales
+        :param z: Distancia y angulo del coche al landmark en ejes locales
+        :return: Posicion en ejes globales del landmark
+        '''
+        zp = np.zeros((2, 1))
 
         zp[0, 0] = x[0, 0] + z[0] * math.cos(x[2, 0] + z[1])
         zp[1, 0] = x[1, 0] + z[0] * math.sin(x[2, 0] + z[1])
 
-        # print(zp)
-        # print('-------------------')
-
         return zp
 
     def get_landmark_position_from_state(self, x, ind):
+        '''
+        Devuelve la posicion del landmark indicado.
+
+        :param x: Vector de estado del coche y landmarks
+        :param ind: Indice del landmark deseado
+        :return: Posicion del landmark deseado
+        '''
         lm = x[self.STATE_SIZE + self.LM_SIZE * ind: self.STATE_SIZE + self.LM_SIZE * (ind + 1), :]
 
         return lm
 
     def search_correspond_landmark_id(self, xEst, PEst, zi):
         """
-        Landmark association with Mahalanobis distance
-        :param xEst: Vector de estado y de posicion de los landmarks
+        Comprueba si la nueva observacion es alguna de las landmarks guardadas o es una nueva, calculando la distancia
+        de Mahalanobis para cada landmark y comparandolas con un threshold de distancia.
+
+        :param xEst: Vector de estado del coche y landmarks
         :param PEst: Matriz de covarianzas del vector de estado y posicion de los landmarks
-        :param zi: Posicion local de las observaciones (d, angle)
-        :return: id del landmark que cumpla un threshold de distancia o anade un id nuevo
+        :param zi: Posicion local de una observacion (d, angle)
+        :return: Id del landmark que cumpla un threshold de distancia o anade un id nuevo
         """
 
         nLM = self.calc_n_lm(xEst)
@@ -190,18 +231,40 @@ class EKFSLAM:
         return min_id
 
     def calc_innovation(self, lm, xEst, PEst, z, LMid):
+        '''
+        Calcula la diferencia entre la posicion guardada del landmark y la posicion del landmark dada por percepcion.
+
+        :param lm: Posicion del landmark guardado
+        :param xEst: Vector de estado del coche y landmarks
+        :param PEst: Matriz de covarianzas del vector de estado y posicion de los landmarks
+        :param z: Posicion local de una observacion (d, angle)
+        :param LMid: Id del landmark observado
+        :return:
+            y: Diferencia de distancia y angulo entre la posicion guardada y la nueva observacion
+            S: Matriz de covarianza de la posicion del landmark
+            H: Jacobiano de la posicion del landmark
+        '''
         delta = lm - xEst[0:2]
         q = (np.matmul(delta.T, delta))[0, 0]
         z_angle = math.atan2(delta[1, 0], delta[0, 0]) - xEst[2, 0]
         zp = np.array([[math.sqrt(q), self.pi_2_pi(z_angle)]])
         y = (z - zp).T
         y[1] = self.pi_2_pi(y[1])
-        H = self.jacob_h(q, delta, xEst, LMid + 1)
+        H = self.jacob_h(q, delta, xEst, LMid)
         S = np.matmul(np.matmul(H, PEst), H.T) + self.Cx[0:2, 0:2]
 
         return y, S, H
 
     def jacob_h(self, q, delta, x, i):
+        '''
+        Calcula el jacobiano de la posicion del landmark.
+
+        :param q: Distancia del coche al landmark guardados al cuadrado
+        :param delta: Diferencia de posicion en ambos ejes del coche al landmark guardados
+        :param x: Vector de estado del coche y landmarks
+        :param i: Id del landmark
+        :return: Jacobiano de la posicion del landmark
+        '''
         sq = math.sqrt(q)
         G = np.array([[-sq * delta[0, 0], - sq * delta[1, 0], 0, sq * delta[0, 0], sq * delta[1, 0]],
                       [delta[1, 0], - delta[0, 0], - q, - delta[1, 0], delta[0, 0]]])
@@ -209,8 +272,8 @@ class EKFSLAM:
         G = G / q
         nLM = self.calc_n_lm(x)
         F1 = np.hstack((np.eye(3), np.zeros((3, 2 * nLM))))
-        F2 = np.hstack((np.zeros((2, 3)), np.zeros((2, 2 * (i - 1))),
-                        np.eye(2), np.zeros((2, 2 * nLM - 2 * i))))
+        F2 = np.hstack((np.zeros((2, 3)), np.zeros((2, 2 * i)),
+                        np.eye(2), np.zeros((2, 2 * nLM - 2 * (i + 1)))))
 
         F = np.vstack((F1, F2))
 
@@ -219,16 +282,37 @@ class EKFSLAM:
         return H
 
     def pi_2_pi(self, angle):
+        '''
+        Devuelve el angulo en un rango entre -pi y pi.
+
+        :param angle: Angulo de entrada
+        :return: Angulo pasado al rango [-pi, pi]
+        '''
         return (angle + math.pi) % (2 * math.pi) - math.pi
 
-    def add_landmarks(self, number_particles):
-        v_add = np.zeros((number_particles, 2))
-        v_add_cov = np.zeros((number_particles*2, 2))
+    def rviz_update(self):
+        '''
+        Actualiza las variables que se mostraran en Rviz
 
-        self.lm = np.vstack((self.lm, v_add))
-        self.lmP = np.vstack((self.lmP, v_add_cov))
+        '''
+        cones_x = []
+        cones_y = []
+
+        # Landmarks
+        for i in range(self.calc_n_lm(self.xEst)):
+            cones_x.append(self.xEst[3 + i * 2])
+            cones_y.append(self.xEst[3 + i * 2 + 1])
+
+        self.marker_array(cones_x, cones_y)
+        self.publish_path()
 
     def marker_array(self, cones_x, cones_y):
+        '''
+        MarkerArray para actualizar y mostrar en Rviz la posicion de los conos que estan guardados.
+
+        :param cones_x: Lista con la posicion en el eje x de los conos
+        :param cones_y: Lista con la posicion en el eje y de los conos
+        '''
         # Publish it as a marker in rviz
         self.marker_ests.markers = []
         for i in range(len(cones_x)):
@@ -257,43 +341,11 @@ class EKFSLAM:
             marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.2, 0.2, 0.8)
             self.marker_ests.markers.append(marker_est)
 
-    def marker_array_slam(self):
-        # Publish it as a marker in rviz
-        self.marker_ests.markers = []
-
-        landmarks = self.lm
-
-        # calcular las posiciones medias de los conos en las particulas
-        distances_x = landmarks[:, 0]
-        distances_y = landmarks[:, 1]
-
-        for i in range(len(distances_x)):
-            marker_est = Marker()
-            marker_est.header.frame_id = "map"
-            marker_est.ns = "est_pose_" + str(i)
-            marker_est.id = i
-            marker_est.type = Marker.CYLINDER
-            marker_est.action = Marker.ADD
-            pose = Pose()
-            point = Point()
-            point.x = distances_x[i]
-            point.y = distances_y[i]
-            point.z = 0.4
-            pose.position = point
-            orientation = Quaternion()
-            # Suponiendo roll y pitch = 0
-            orientation.x = 0.0
-            orientation.y = 0.0
-            orientation.z = 0.0
-            orientation.w = 1.0
-            pose.orientation = orientation
-            marker_est.pose = pose
-            marker_est.color.r, marker_est.color.g, marker_est.color.b = (0, 255, 0)
-            marker_est.color.a = 0.5
-            marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.2, 0.2, 0.8)
-            self.marker_ests.markers.append(marker_est)
-
     def publish_path(self):
+        '''
+        Actualizacion de la trayectoria del coche que se publica para control y Rviz.
+
+        '''
         self.path.header.stamp = rospy.Time.now()
         self.path.header.frame_id = "map"
         pose = PoseStamped()
@@ -309,54 +361,44 @@ class EKFSLAM:
         orientation.y = 0.0
         orientation.z = np.sin(self.yaw * 0.5)
         orientation.w = np.cos(self.yaw * 0.5)
-        #print('SLAM', self.yaw)
-        #orientation.z = self.yaw
-        #orientation.w = 1.0
         pose.pose.orientation = orientation
         self.path.poses.append(pose)
         self.pose = pose
 
-    def update_car_position(self, pose):
-        self.x = pose.position.x
-        self.y = pose.position.y
-        self.yaw = self.pi_2_pi(np.arctan2(2 * (pose.orientation.w * pose.orientation.z), 1 - 2 * (pose.orientation.z ** 2)))
+    def update_car_steer(self, steer):
+        '''
+        Actualiza la entrada de giro de volante dada por control
 
-    def update_car_position_odom(self, time, velocity, yaw_rate):
-        self.u[0] = velocity
-        self.u[1] = yaw_rate
-
-    def update_car_yaw(self, yaw):
-        self.u[1, 0] = yaw
+        :param steer: Giro de volante del coche dado por control
+        '''
+        self.u[1, 0] = steer
 
     def update_car_gps_vel(self, velocity):
+        '''
+        Actualiza la entrada de velocidad dada por gps_velocity
+
+        :param velocity: Velocidad dada por gps_velocity
+        '''
         self.u[0, 0] = velocity
 
 
 class Slam_Class(object):
     def __init__(self):
+        # Inicializacion de variables
         self.ekf_slam = EKFSLAM()
+
+        ''' Topicos de ROS '''
+        # Subscriber de la entrada de observaciones de conos
         self.cones_sub = rospy.Subscriber('/ground_truth/cones', ConeArrayWithCovariance, self.cones_callback)
 
-        self.marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
-
-        # Solo pueden estar conectado 1 de estos dos siguientes
-        #self.ground_truth_sub = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
-        # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.state_estimation_callback)
-
-        # Solo pueden estar conectados odom, o imu y gps
-        # self.odom_sub = rospy.Subscriber('/odometry_pub', WheelSpeedsStamped, self.odom_callback)
-        # self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
-        self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
+        # Subscriber de las entradas del modelo cinematico
         self.control_sub = rospy.Subscriber('/cmd_vel_out', AckermannDriveStamped, self.control_callback)
+        self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
 
+        # Publishers de EKF SLAM
+        self.marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
         self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
         self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
-
-    def sub_callback(self, msg):
-        self.ekf_slam.update_car_position(msg.pose.pose)
-
-    def state_estimation_callback(self, msg):
-        self.ekf_slam.update_car_position(msg.pose)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
@@ -365,44 +407,21 @@ class Slam_Class(object):
         cones = msg.yellow_cones + msg.blue_cones + msg.big_orange_cones
         self.ekf_slam.bucle_principal(cones, timestamp)
 
-    def odom_callback(self, msg):
-        time_sec = msg.header.stamp.secs
-        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
-        timestamp = time_sec + time_nsec
-        velocity_rpm = msg.lb_speed
-        velocity_mean = (velocity_rpm * 2.0 * math.pi * 0.25) / 60.0
-
-        # Max steering = 0.52 rad/s
-        steering = msg.steering
-
-        self.ekf_slam.update_car_position_odom(timestamp, velocity_mean, steering)
-
     def gps_vel_callback(self, msg):
-        time_sec = msg.header.stamp.secs
-        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
-        timestamp = time_sec + time_nsec
         velocity = [-msg.vector.y + 1*10**-12, msg.vector.x]
         velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
         self.ekf_slam.update_car_gps_vel(velocity_mean)
 
-    def imu_callback(self, msg):
-        yaw_rate = msg.angular_velocity.z
-        self.ekf_slam.update_car_yaw(yaw_rate)
-
     def control_callback(self, msg):
-        time_sec = msg.header.stamp.secs
-        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
-        time = time_sec + time_nsec
         angle = msg.drive.steering_angle
         acceleration = msg.drive.acceleration
-        self.ekf_slam.update_car_yaw(angle)
+        self.ekf_slam.update_car_steer(angle)
 
 
 if __name__ == '__main__':
     rospy.init_node('slam_node', anonymous=True)
     slam_class = Slam_Class()
-    #rospy.spin()
-    rate = rospy.Rate(10)  # Hz
+    rate = rospy.Rate(10) # Frecuencia de los publishers (Hz)
 
     while not rospy.is_shutdown():
         slam_class.marker_array_pub.publish(slam_class.ekf_slam.marker_ests)
