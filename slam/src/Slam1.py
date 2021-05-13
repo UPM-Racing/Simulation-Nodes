@@ -9,6 +9,8 @@ from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray, Marker
 from sensor_msgs.msg import NavSatFix
 from ackermann_msgs.msg import AckermannDriveStamped
+import time
+import csv
 
 WITH_EKF = True
 
@@ -196,7 +198,7 @@ class FastSLAM:
         self.var_gnss = 0.25
         self.var_model = 0.1
 
-    def bucle_principal(self, landmarks, time):
+    def bucle_principal(self, landmarks, timestamp):
         '''
         Bucle principal de actualizacion de las particulas. Se llama cada vez que llega un mensaje de conos. Comprueba
         si cada observacion corresponde a un cono ya guardado o es uno nuevo antes de llamar a la funcion de slam.
@@ -204,8 +206,9 @@ class FastSLAM:
         :param landmarks: Lista de la posicion de todos los conos observables
         :param time: Instante de tiempo actual
         '''
-        self.DT = time - self.past_time
-        self.past_time = time
+        period = time.time()
+        self.DT = timestamp - self.past_time
+        self.past_time = timestamp
 
         # Calcular las posiciones medias de los conos en las particulas
         landmarks_x, landmarks_y = self.calc_final_lm_position(self.particles)
@@ -251,6 +254,11 @@ class FastSLAM:
         self.x = xEst[0, 0]
         self.y = xEst[1, 0]
         self.yaw = xEst[2, 0]
+
+        period = time.time() - period
+        with open('../catkin_ws/results/Slam1.csv', 'ab') as csvfile:
+            writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+            writer.writerow([period])
 
         # Actualiza las variables de Rviz
         self.rviz_update()
@@ -932,6 +940,9 @@ if __name__ == '__main__':
     rospy.init_node('slam_node', anonymous=True)
     slam_class = Slam_Class()
     rate = rospy.Rate(10) # Frecuencia de los publishers (Hz)
+    with open('../catkin_ws/results/Slam1.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+        writer.writerow(['SLAM 1 Period'])
 
     while not rospy.is_shutdown():
         slam_class.marker_array_pub.publish(slam_class.fast_slam.marker_ests)

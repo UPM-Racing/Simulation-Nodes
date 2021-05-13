@@ -7,6 +7,9 @@ from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamp
 from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray, Marker
 from ackermann_msgs.msg import AckermannDriveStamped
+import time
+import csv
+import os
 
 class EKFSLAM:
     def __init__(self):
@@ -47,7 +50,7 @@ class EKFSLAM:
         self.STATE_SIZE = 3  # State size [x,y,yaw]
         self.LM_SIZE = 2  # LM state size [x,y]
 
-    def bucle_principal(self, cones, time):
+    def bucle_principal(self, cones, timestamp):
         '''
         Bucle principal de actualizacion del estado del coche. Se llama cada vez que llega un mensaje de conos. Crea el
         vector de distancias y angulos locales a las observaciones y llama a la funcion de slam.
@@ -55,8 +58,9 @@ class EKFSLAM:
         :param cones: Lista de la posicion de todos los conos observables
         :param time: Instante de tiempo actual
         '''
-        self.DT = time - self.past_time
-        self.past_time = time
+        period = time.time()
+        self.DT = timestamp - self.past_time
+        self.past_time = timestamp
 
         z = np.zeros((0, 2))
 
@@ -71,6 +75,12 @@ class EKFSLAM:
         self.y = self.xEst[1]
         self.yaw = self.xEst[2]
 
+        period = time.time() - period
+        with open('../catkin_ws/results/Ekf_Slam.csv', 'ab') as csvfile:
+            writer=csv.writer(csvfile, delimiter='\t',lineterminator='\n',)
+            writer.writerow([period])
+
+        # Actualiza las variables de Rviz
         self.rviz_update()
 
     def ekf_slam(self, xEst, PEst, u, z):
@@ -422,6 +432,9 @@ if __name__ == '__main__':
     rospy.init_node('slam_node', anonymous=True)
     slam_class = Slam_Class()
     rate = rospy.Rate(10) # Frecuencia de los publishers (Hz)
+    with open('../catkin_ws/results/Ekf_Slam.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+        writer.writerow(['EKF SLAM Period'])
 
     while not rospy.is_shutdown():
         slam_class.marker_array_pub.publish(slam_class.ekf_slam.marker_ests)
