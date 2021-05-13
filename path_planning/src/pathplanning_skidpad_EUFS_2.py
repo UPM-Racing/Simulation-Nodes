@@ -231,14 +231,10 @@ class Path_planning(object):
                 self.trayectory_points_x.append(x)
                 self.trayectory_points_y.append(y)
         elif self.state_machine > 5:
-            point_x = self.trayectory_points_x[-1]
-            point_y = self.trayectory_points_y[-1]
             self.trayectory_points_x = []
             self.trayectory_points_y = []
-            self.trayectory_points_x.append(point_x)
-            self.trayectory_points_y.append(point_y)
             # Recta final
-            num = 2
+            num = 4
             for i in range(num):
                 self.trayectory_points_x.append(center[0, 0] + i * self.finishing_length / (num - 1))
                 self.trayectory_points_y.append(center[0, 1])
