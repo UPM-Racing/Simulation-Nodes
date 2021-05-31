@@ -2,6 +2,7 @@
 import rospy
 import numpy as np
 from nav_msgs.msg import Path
+import csv
 
 
 class ErrorMeasurementClass(object):
@@ -48,12 +49,18 @@ class ErrorMeasurementClass(object):
         rms = np.sqrt(np.mean(np.square(np.array(distancias))))
 
         if rms > 0:
-            print(rms)
+            with open('../catkin_ws/results/Error_measurement_slam2.csv', 'ab') as csvfile:
+                writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+                writer.writerow([rms, distancias[-1]])
+            # print(rms)
 
 if __name__ == '__main__':
     rospy.init_node('error_measurement_node', anonymous=True)
     error_measurement = ErrorMeasurementClass()
-    rate = rospy.Rate(0.5)  # Hz
+    rate = rospy.Rate(10)  # Hz
+    with open('../catkin_ws/results/Error_measurement_slam2.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+        writer.writerow(['RMS measurement', 'Last error measurement'])
 
     while not rospy.is_shutdown():
         error_measurement.error_measurement()
