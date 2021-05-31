@@ -22,6 +22,8 @@ class Path_planning(object):
         self.initial_point = np.zeros((1, 2))
         self.state_machine = 0
         self.center_in_view = False
+        self.right_center = np.zeros((1, 2))
+        self.left_center = np.zeros((1, 2))
 
         # Inicializacion de listas para mostrar en Rviz
         self.trayectory_points_x = []
@@ -37,8 +39,11 @@ class Path_planning(object):
         self.STARTING_THRESHOLD = 1.5
         self.ORANGE_THRESHOLD = 4.0
         self.DIST_THRESHOLD = 1.0
+        self.center_distance = 4.0
+
+        # Parametros del calculo de trayectoria
+        self.straight_points = 4
         self.circle_points = 20
-        self.center_distance = 2.0
 
         # Dimensiones SKIDPAD
         self.trayectory_radius = 9.125
@@ -109,6 +114,10 @@ class Path_planning(object):
             cones_y.append(midpoint_y)
             self.initial_point[0, 0] = midpoint_x
             self.initial_point[0, 1] = midpoint_y
+            self.right_center[0, 0] = midpoint_x
+            self.right_center[0, 1] = midpoint_y - self.trayectory_radius
+            self.left_center[0, 0] = midpoint_x
+            self.left_center[0, 1] = midpoint_y + self.trayectory_radius
             self.state_machine = 1
 
         self.append_new_points(np.array(midpoint_x_list), np.array(midpoint_y_list))
@@ -125,6 +134,7 @@ class Path_planning(object):
         self.update_path(rax, ray)
 
     def second_part(self, cones_yellow, cones_blue, cones_orange):
+        # State machine update
         distance = self.calculate_distances(self.x, self.y, self.initial_point)
         if distance < self.center_distance:
             if not self.center_in_view:
@@ -133,7 +143,17 @@ class Path_planning(object):
         else:
             self.center_in_view = False
 
-        self.create_trayectory(self.initial_point, self.trayectory_radius)
+        # Correccion del radio y centro
+        blue_positions = self.array_creation(cones_blue)
+        blue_distances = self.calculate_distances(self.x, self.y, blue_positions)
+
+        if not self.center_in_view:
+            if (self.state_machine == 2 or self.state_machine == 3):
+                self.dimensions_correction(True, cones_blue)
+            elif self.state_machine == 4 or self.state_machine == 5:
+                self.dimensions_correction(False, cones_yellow)
+
+        self.create_trayectory()
 
         if len(self.trayectory_points_x) < 2:
             rax = self.trayectory_points_x
@@ -203,7 +223,7 @@ class Path_planning(object):
 
         return x_new, y_new
 
-    def create_trayectory(self, center, radius):
+    def create_trayectory(self):
         if self.state_machine == 2 or self.state_machine == 3:
             point_x = self.trayectory_points_x[-1]
             point_y = self.trayectory_points_y[-1]
@@ -213,8 +233,8 @@ class Path_planning(object):
             self.trayectory_points_y.append(point_y)
             # Primera vuelta
             for i in range(self.circle_points):
-                x = center[0, 0] + radius * (np.cos(math.pi / 2 - 2 * math.pi * i / self.circle_points))
-                y = center[0, 1] + radius * (-1 + np.sin(math.pi / 2 - 2 * math.pi * i / self.circle_points))
+                x = self.right_center[0, 0] + self.trayectory_radius * np.cos(math.pi / 2 - 2 * math.pi * i / self.circle_points)
+                y = self.right_center[0, 1] + self.trayectory_radius * np.sin(math.pi / 2 - 2 * math.pi * i / self.circle_points)
                 self.trayectory_points_x.append(x)
                 self.trayectory_points_y.append(y)
         elif self.state_machine == 4 or self.state_machine == 5:
@@ -226,18 +246,48 @@ class Path_planning(object):
             self.trayectory_points_y.append(point_y)
             # Segunda vuelta
             for i in range(self.circle_points):
-                x = center[0, 0] + radius * (np.cos(-math.pi / 2 + 2 * math.pi * i / self.circle_points))
-                y = center[0, 1] + radius * (1 + np.sin(-math.pi / 2 + 2 * math.pi * i / self.circle_points))
+                x = self.left_center[0, 0] + self.trayectory_radius * np.cos(-math.pi / 2 + 2 * math.pi * i / self.circle_points)
+                y = self.left_center[0, 1] + self.trayectory_radius * np.sin(-math.pi / 2 + 2 * math.pi * i / self.circle_points)
                 self.trayectory_points_x.append(x)
                 self.trayectory_points_y.append(y)
         elif self.state_machine > 5:
             self.trayectory_points_x = []
             self.trayectory_points_y = []
             # Recta final
-            num = 4
-            for i in range(num):
-                self.trayectory_points_x.append(center[0, 0] + i * self.finishing_length / (num - 1))
-                self.trayectory_points_y.append(center[0, 1])
+            for i in range(self.straight_points):
+                self.trayectory_points_x.append(self.initial_point[0, 0] + i * self.finishing_length / (self.straight_points - 1))
+                self.trayectory_points_y.append(self.initial_point[0, 1])
+
+    def dimensions_correction(self, right, cones):
+        if len(cones) >= 3:
+            x, y = self.local_to_global(cones[0].point.x, cones[0].point.y)
+            p1 = np.array([x, y])
+            x, y = self.local_to_global(cones[1].point.x, cones[1].point.y)
+            p2 = np.array([x, y])
+            x, y = self.local_to_global(cones[2].point.x, cones[2].point.y)
+            p3 = np.array([x, y])
+
+            temp = p2[0] * p2[0] + p2[1] * p2[1]
+            bc = (p1[0] * p1[0] + p1[1] * p1[1] - temp) / 2
+            cd = (temp - p3[0] * p3[0] - p3[1] * p3[1]) / 2
+            det = (p1[0] - p2[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p2[1])
+
+            if abs(det) < 1.0e-6:
+                return (None, np.inf)
+
+            # Center of circle
+            cx = (bc * (p2[1] - p3[1]) - cd * (p1[1] - p2[1])) / det
+            cy = ((p1[0] - p2[0]) * cd - (p2[0] - p3[0]) * bc) / det
+            radius = np.sqrt((cx - p1[0]) ** 2 + (cy - p1[1]) ** 2)
+
+            if right:
+                self.right_center[0, 0] = (cx + self.right_center[0, 0]) / 2
+                self.right_center[0, 1] = (cy + self.right_center[0, 1]) / 2
+                self.trayectory_radius = (radius - self.cone_dist / 2 + self.trayectory_radius) / 2
+            else:
+                self.left_center[0, 0] = (cx + self.left_center[0, 0]) / 2
+                self.left_center[0, 1] = (cy + self.left_center[0, 1]) / 2
+                self.trayectory_radius = (radius - self.cone_dist / 2 + self.trayectory_radius) / 2
 
     def array_creation(self, cones):
         '''
