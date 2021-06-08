@@ -405,7 +405,7 @@ class EKF_Class(object):
         self.car = Car()
         self.gps = Gps()
         self.first = 2
-        self.skidpad = False
+        self.skidpad = True
 
         ''' Topicos de ROS '''
         # Subscriber de la entrada de control para el modelo cinematico
