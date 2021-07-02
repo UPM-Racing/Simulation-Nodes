@@ -3,21 +3,20 @@ import rospy
 import math
 import numpy as np
 from scipy.spatial import distance
-from eufs_msgs.msg import ConeArrayWithCovariance
-from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamped
-from nav_msgs.msg import Path
-from visualization_msgs.msg import MarkerArray, Marker
-from sensor_msgs.msg import NavSatFix
-from ackermann_msgs.msg import AckermannDriveStamped
 import time
 import csv
 
+from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamped
+from nav_msgs.msg import Path
+from visualization_msgs.msg import MarkerArray, Marker
+
+
 WITH_EKF = True
 
-Q = np.diag([3.0, np.deg2rad(10.0)]) ** 2
-R = np.diag([1.0, np.deg2rad(20.0)]) ** 2
+Q = np.diag([0.3, np.deg2rad(5.0)]) ** 2
+R = np.diag([0.5, np.deg2rad(30.0)]) ** 2
 
-N_PARTICLE = 20  # number of particle
+N_PARTICLE = 50  # number of particle
 NTH = N_PARTICLE / 1.5  # Number of particle for re-sampling
 
 class Gps():
@@ -159,7 +158,7 @@ class Particle:
         self.lmP = np.vstack((self.lmP, v_add_cov))
 
 
-class FastSLAM:
+class SLAM:
     def __init__(self):
         ''' Variables no configurables '''
         # Estado del coche
@@ -178,6 +177,7 @@ class FastSLAM:
         self.slam_marker_ests = MarkerArray()
         self.h_jac = np.zeros([2, 3])
         self.h_jac[:, :2] = np.eye(2)  # Jacobiano del modelo cinematico
+        self.cones_to_csv = False
 
         # Variables no usadas en principio
         self.state_x = 0.0
@@ -206,7 +206,7 @@ class FastSLAM:
         :param landmarks: Lista de la posicion de todos los conos observables
         :param time: Instante de tiempo actual
         '''
-        period = time.time()
+        '''period = time.time()'''
         self.DT = timestamp - self.past_time
         self.past_time = timestamp
 
@@ -255,13 +255,22 @@ class FastSLAM:
         self.y = xEst[1, 0]
         self.yaw = xEst[2, 0]
 
-        period = time.time() - period
+        '''period = time.time() - period
         with open('../catkin_ws/results/Slam1.csv', 'ab') as csvfile:
             writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
-            writer.writerow([period])
+            writer.writerow([period])'''
 
         # Actualiza las variables de Rviz
         self.rviz_update()
+
+        '''if self.total_landmarks == 71 and not self.cones_to_csv:
+            with open('../catkin_ws/results/cones_position_slam1.csv', 'ab') as csvfile:
+                writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+                ind = self.get_best_particle(self.particles)
+                for i, landmark in enumerate(self.particles[ind].lm):
+                    writer.writerow([i, landmark[0], landmark[1]])
+                print('done')
+                self.cones_to_csv = True'''
 
     def expandir_particulas(self, number_new_particles):
         '''
@@ -399,7 +408,7 @@ class FastSLAM:
                     w = self.compute_weight(z[:, iz], zp, Sf)
                     # Se multiplica el peso por el guardado
                     particles[ip].w *= w
-                    particles[ip] = self.update_landmark(particles[ip], z[:, iz], zp, xf, Pf, Hf)
+                    particles[ip] = self.update_landmark(particles[ip], z[:, iz], zp, xf, Pf, Hf, Sf)
 
         return particles
 
@@ -501,7 +510,7 @@ class FastSLAM:
 
         return zp, Hv, Hf, Sf
 
-    def update_landmark(self, particle, z, zp, xf, Pf, Hf):
+    def update_landmark(self, particle, z, zp, xf, Pf, Hf, Sf):
         """
         Actualiza la posicion y covarianza de un landmark guardado de acuerdo con las nuevas observaciones.
 
@@ -519,7 +528,16 @@ class FastSLAM:
         dz = z[0:2].reshape(2, 1) - zp
         dz[1, 0] = self.pi_2_pi(dz[1, 0])
 
-        xf, Pf = self.update_kf_with_cholesky(xf, Pf, dz, Q, Hf)
+        # Calculamos la inversa de Sf
+        try:
+            invS = np.linalg.inv(Sf)
+        except np.linalg.linalg.LinAlgError:
+            print("singular")
+            return 1.0
+
+        k = np.matmul(np.matmul(Pf, Hf.T), invS)
+        xf += np.matmul(k, dz)  # proposal mean
+        Pf = np.matmul(np.eye(2) - np.matmul(k, Hf), Pf)
 
         particle.lm[lm_id, :] = xf.T
         particle.lmP[2 * lm_id:2 * lm_id + 2, :] = Pf
@@ -643,6 +661,17 @@ class FastSLAM:
 
         return xEst
 
+    def get_best_particle(self, particles):
+        ind = 0
+        weight = 0.0
+
+        # Media de todas las posiciones con sus pesos
+        for i in range(N_PARTICLE):
+            if particles[i].w > weight:
+                ind = i
+
+        return ind
+
     def get_best_position(self, particles):
         '''
         Calcula el estado del coche final cogiendo el de la particula con mejor peso.
@@ -653,13 +682,7 @@ class FastSLAM:
         xEst = np.zeros((3, 1))
 
         particles = self.normalize_weight(particles)
-        ind = 0
-        weight = 0.0
-
-        # Media de todas las posiciones con sus pesos
-        for i in range(N_PARTICLE):
-            if particles[i].w > weight:
-                ind = i
+        ind = self.get_best_particle(particles)
 
         xEst[0, 0] = particles[ind].x
         xEst[1, 0] = particles[ind].y
@@ -877,76 +900,3 @@ class FastSLAM:
         self.path.poses.append(pose)
         self.pose = pose
 
-
-class Slam_Class(object):
-    def __init__(self):
-        # Inicializacion de variables
-        self.fast_slam = FastSLAM()
-        if WITH_EKF:
-            self.gps = Gps()
-
-        ''' Topicos de ROS '''
-        # Subscriber de la entrada de observaciones de conos
-        self.cones_sub = rospy.Subscriber('/ground_truth/cones', ConeArrayWithCovariance, self.cones_callback)
-
-        # Subscriber de las entradas del modelo cinematico
-        self.control_sub = rospy.Subscriber('/cmd_vel_out', AckermannDriveStamped, self.control_callback)
-        self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
-
-        # Subscribers para la correccion de la posicion
-        if WITH_EKF:
-            self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
-
-        # Subscriber para la localizacion en coordenadas globales de los conos (No se usa actualmente)
-        # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.state_estimation_callback)
-
-        # Publishers de Fast SLAM 1.0
-        self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
-        self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
-        self.slam_marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
-        self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
-
-    def cones_callback(self, msg):
-        time_sec = msg.header.stamp.secs
-        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
-        timestamp = time_sec + time_nsec
-        cones = msg.yellow_cones + msg.blue_cones + msg.big_orange_cones
-        self.fast_slam.bucle_principal(cones, timestamp)
-
-    def control_callback(self, msg):
-        angle = msg.drive.steering_angle
-        acceleration = msg.drive.acceleration
-
-        self.fast_slam.update_car_steer(angle)
-
-    def gps_vel_callback(self, msg):
-        velocity = [-msg.vector.y + 1 * 10 ** -12, msg.vector.x]
-        velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
-        self.fast_slam.update_car_gps_vel(velocity_mean)
-
-    def gps_callback(self, msg):
-        latitude = msg.latitude
-        longitude = msg.longitude
-        altitude = msg.altitude
-        x, y = self.gps.gps_to_local(latitude, longitude, altitude)
-        gps_values = np.array([x, y])
-        self.fast_slam.updateStep(gps_values)
-
-    def state_estimation_callback(self, msg):
-        self.fast_slam.update_car_position(msg.pose)
-
-
-if __name__ == '__main__':
-    rospy.init_node('slam_node', anonymous=True)
-    slam_class = Slam_Class()
-    rate = rospy.Rate(10) # Frecuencia de los publishers (Hz)
-    with open('../catkin_ws/results/Slam1.csv', 'w') as csvfile:
-        writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
-        writer.writerow(['SLAM 1 Period'])
-
-    while not rospy.is_shutdown():
-        slam_class.marker_array_pub.publish(slam_class.fast_slam.marker_ests)
-        slam_class.slam_marker_array_pub.publish(slam_class.fast_slam.slam_marker_ests)
-        slam_class.path_pub.publish(slam_class.fast_slam.path)
-        slam_class.pose_pub.publish(slam_class.fast_slam.pose)
-        rate.sleep()

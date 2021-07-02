@@ -51,14 +51,14 @@ if __name__ == "__main__":
             "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'SKIDPAD':
-        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/skidpad.launch"])
+        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/skidpad_real.launch"])
         launch2.start()
     elif master_node.state == 'AUTOCROSS':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
             "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'TRACKDRIVE':
-        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/trackdrive.launch"])
+        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/trackdrive_real.launch"])
         launch2.start()
     elif master_node.state == 'AUTONOMOUS_DEMO':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [

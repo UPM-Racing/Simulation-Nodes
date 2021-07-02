@@ -2,16 +2,15 @@
 import rospy
 import math
 import numpy as np
-from eufs_msgs.msg import ConeArrayWithCovariance
-from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamped
-from nav_msgs.msg import Path
-from visualization_msgs.msg import MarkerArray, Marker
-from ackermann_msgs.msg import AckermannDriveStamped
 import time
 import csv
-import os
 
-class EKFSLAM:
+from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion
+from nav_msgs.msg import Path
+from visualization_msgs.msg import MarkerArray, Marker
+
+
+class SLAM:
     def __init__(self):
         ''' Variables no configurables '''
         # Estado del coche
@@ -27,10 +26,10 @@ class EKFSLAM:
         self.u = np.zeros((2, 1))
         self.path = Path()
         self.pose = PoseStamped()
-        self.marker_ests = MarkerArray()
         self.slam_marker_ests = MarkerArray()
         self.h_jac = np.zeros([2, 3])
         self.h_jac[:, :2] = np.eye(2)  # Jacobiano del modelo cinematico
+        self.cones_to_csv = False
 
         # Variables no usadas en principio
         self.state_x = 0.0
@@ -58,7 +57,7 @@ class EKFSLAM:
         :param cones: Lista de la posicion de todos los conos observables
         :param time: Instante de tiempo actual
         '''
-        period = time.time()
+        '''period = time.time()'''
         self.DT = timestamp - self.past_time
         self.past_time = timestamp
 
@@ -75,13 +74,22 @@ class EKFSLAM:
         self.y = self.xEst[1]
         self.yaw = self.xEst[2]
 
-        period = time.time() - period
+        '''period = time.time() - period
         with open('../catkin_ws/results/Ekf_Slam.csv', 'ab') as csvfile:
             writer=csv.writer(csvfile, delimiter='\t',lineterminator='\n',)
-            writer.writerow([period])
+            writer.writerow([period])'''
 
         # Actualiza las variables de Rviz
         self.rviz_update()
+
+        '''if self.calc_n_lm(self.xEst) == 69 and not self.cones_to_csv:
+            with open('../catkin_ws/results/cones_position_ekf_slam.csv', 'ab') as csvfile:
+                writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
+                for i in range(self.calc_n_lm(self.xEst)):
+                    lm = self.get_landmark_position_from_state(self.xEst, i)
+                    writer.writerow([i, lm[0], lm[1]])
+                print('done')
+                self.cones_to_csv = True'''
 
     def ekf_slam(self, xEst, PEst, u, z):
         '''
@@ -324,7 +332,7 @@ class EKFSLAM:
         :param cones_y: Lista con la posicion en el eje y de los conos
         '''
         # Publish it as a marker in rviz
-        self.marker_ests.markers = []
+        self.slam_marker_ests.markers = []
         for i in range(len(cones_x)):
             marker_est = Marker()
             marker_est.header.frame_id = "map"
@@ -349,7 +357,7 @@ class EKFSLAM:
             marker_est.color.r, marker_est.color.g, marker_est.color.b = (0, 255, 0)
             marker_est.color.a = 0.5
             marker_est.scale.x, marker_est.scale.y, marker_est.scale.z = (0.2, 0.2, 0.8)
-            self.marker_ests.markers.append(marker_est)
+            self.slam_marker_ests.markers.append(marker_est)
 
     def publish_path(self):
         '''
@@ -391,53 +399,3 @@ class EKFSLAM:
         '''
         self.u[0, 0] = velocity
 
-
-class Slam_Class(object):
-    def __init__(self):
-        # Inicializacion de variables
-        self.ekf_slam = EKFSLAM()
-
-        ''' Topicos de ROS '''
-        # Subscriber de la entrada de observaciones de conos
-        self.cones_sub = rospy.Subscriber('/ground_truth/cones', ConeArrayWithCovariance, self.cones_callback)
-
-        # Subscriber de las entradas del modelo cinematico
-        self.control_sub = rospy.Subscriber('/cmd_vel_out', AckermannDriveStamped, self.control_callback)
-        self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
-
-        # Publishers de EKF SLAM
-        self.marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
-        self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
-        self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
-
-    def cones_callback(self, msg):
-        time_sec = msg.header.stamp.secs
-        time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
-        timestamp = time_sec + time_nsec
-        cones = msg.yellow_cones + msg.blue_cones + msg.big_orange_cones
-        self.ekf_slam.bucle_principal(cones, timestamp)
-
-    def gps_vel_callback(self, msg):
-        velocity = [-msg.vector.y + 1*10**-12, msg.vector.x]
-        velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
-        self.ekf_slam.update_car_gps_vel(velocity_mean)
-
-    def control_callback(self, msg):
-        angle = msg.drive.steering_angle
-        acceleration = msg.drive.acceleration
-        self.ekf_slam.update_car_steer(angle)
-
-
-if __name__ == '__main__':
-    rospy.init_node('slam_node', anonymous=True)
-    slam_class = Slam_Class()
-    rate = rospy.Rate(10) # Frecuencia de los publishers (Hz)
-    with open('../catkin_ws/results/Ekf_Slam.csv', 'w') as csvfile:
-        writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
-        writer.writerow(['EKF SLAM Period'])
-
-    while not rospy.is_shutdown():
-        slam_class.marker_array_pub.publish(slam_class.ekf_slam.marker_ests)
-        slam_class.path_pub.publish(slam_class.ekf_slam.path)
-        slam_class.pose_pub.publish(slam_class.ekf_slam.pose)
-        rate.sleep()
