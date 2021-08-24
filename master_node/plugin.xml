@@ -1,0 +1,16 @@
+<library path="src">
+  <class name="GUI" type="master_node.GUI_python2.GUI" base_class_type="rqt_gui_py::Plugin">
+    <description>
+      A GUI to control the state machine of ros_can_sim
+    </description>
+    <qtgui>
+      <group>
+        <label>EUFS</label>
+        <icon type="theme">folder</icon>
+      </group>
+      <label>ros_can_sim GUI</label>
+      <icon type="theme">utilities-terminal</icon>
+      <statustip>Controls the state machine of ros_can_sim</statustip>
+    </qtgui>
+  </class>
+</library>

@@ -436,7 +436,7 @@ class Path_planning(object):
             point = Point()
             point.x = x[i]
             point.y = y[i]
-            point.z = 0.0
+            point.z = 0.25
             pose.pose.position = point
             orientation = Quaternion()
             # Suponiendo roll y pitch = 0
