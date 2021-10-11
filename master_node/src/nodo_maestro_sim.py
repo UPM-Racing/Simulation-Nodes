@@ -85,7 +85,5 @@ if __name__ == "__main__":
             "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
 
-    #while (1):
-    #    continue
-    while not rospy.is_shutdown():
+    while (1):
         continue
