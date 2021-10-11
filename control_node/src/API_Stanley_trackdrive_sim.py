@@ -11,7 +11,7 @@ import Algoritmo_Stanley
 
 
 class State(object):
-    VEL_THRESHOLD = 1e-5
+    VEL_THRESHOLD = 1e-4
 
     def __init__(self):
         self.stanley_class = Algoritmo_Stanley.Stanley()
