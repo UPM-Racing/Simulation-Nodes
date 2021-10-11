@@ -37,7 +37,7 @@ class Master_node(object):
 if __name__ == "__main__":
     uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
     roslaunch.configure_logging(uuid)
-    launch = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/eufs_launcher.launch"])
+    launch = roslaunch.parent.ROSLaunchParent(uuid, ["/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/eufs_launcher.launch"])
     launch.start()
     master_node = Master_node()
     rospy.init_node('master_node', anonymous=True)
@@ -48,42 +48,44 @@ if __name__ == "__main__":
 
     if master_node.state == 'ACCELERATION':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'SKIDPAD':
-        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/skidpad_sim.launch"])
+        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/skidpad_sim.launch"])
         launch2.start()
     elif master_node.state == 'AUTOCROSS':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'TRACKDRIVE':
-        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/trackdrive_sim.launch"])
+        launch2 = roslaunch.parent.ROSLaunchParent(uuid, ["/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/trackdrive_sim.launch"])
         launch2.start()
     elif master_node.state == 'AUTONOMOUS_DEMO':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'ADS_INSPECTION':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'ADS_EBS':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'DDT_INSPECTION_A':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'DDT_INSPECTION_B':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
     elif master_node.state == 'MANUAL':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [
-            "/home/david/catkin_ws/src/eufs_sim-v1.0.0/eufs_launcher/launch/nodos.launch"])
+            "/home/miguel/Documentos/EUFS/catkin_ws/src/eufs_sim-master/eufs_launcher/launch/nodos.launch"])
         launch2.start()
 
-    while (1):
+    #while (1):
+    #    continue
+    while not rospy.is_shutdown():
         continue

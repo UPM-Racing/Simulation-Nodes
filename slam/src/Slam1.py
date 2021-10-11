@@ -16,7 +16,7 @@ WITH_EKF = True
 Q = np.diag([0.3, np.deg2rad(5.0)]) ** 2
 R = np.diag([0.5, np.deg2rad(30.0)]) ** 2
 
-N_PARTICLE = 50  # number of particle
+N_PARTICLE = 50 #50  # number of particle
 NTH = N_PARTICLE / 1.5  # Number of particle for re-sampling
 
 class Gps():
@@ -369,10 +369,11 @@ class SLAM:
             px[1, 0] = particles[i].y
             px[2, 0] = particles[i].yaw
             # Se vuelve a anadir ruido al control input vector para generar particulas diferentes entre si
-            # u = [vel, yaw_rate]
+            #u = [vel, yaw_rate]
             ud = self.u + (np.matmul(np.random.randn(1, 2) / 4.0, R ** 0.5)).T  # add noise
             # Se actualiza el estado de las particulas en funcion del motion model
             if WITH_EKF:
+                #px, p_cov = self.motion_model(px, ud, particles[i].p_cov)
                 px, p_cov = self.motion_model(px, ud, particles[i].p_cov)
                 particles[i].p_cov = p_cov
             else:

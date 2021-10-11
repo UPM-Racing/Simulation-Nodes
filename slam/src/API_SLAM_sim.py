@@ -11,8 +11,9 @@ from visualization_msgs.msg import MarkerArray
 from sensor_msgs.msg import NavSatFix
 from ackermann_msgs.msg import AckermannDriveStamped
 
-import Ekf_Slam as slam
-FASTSLAM = False
+#import Ekf_Slam as slam
+import Slam1 as slam
+FASTSLAM = True
 
 class Slam_Class(object):
     def __init__(self):
