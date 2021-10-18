@@ -24,6 +24,8 @@ class Path_planning(object):
         # Inicializacion de listas para mostrar en Rviz
         self.trayectory_points_x = []
         self.trayectory_points_y = []
+        self.new_trayectory_points_x = []
+        self.new_trayectory_points_y = []
         self.marker_ests = MarkerArray()
         self.path = Path()
 
@@ -86,13 +88,13 @@ class Path_planning(object):
             self.append_new_points(np.array(x_new), np.array(y_new))
 
         # Actualizacion de la trayectoria
-        if len(self.trayectory_points_x) < 2:
-            rax = self.trayectory_points_x
-            ray = self.trayectory_points_y
-        elif len(self.trayectory_points_x) <= self.degree:
-            rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, len(self.trayectory_points_x)-1)
+        if len(self.new_trayectory_points_x) < 2:
+            rax = self.new_trayectory_points_x
+            ray = self.new_trayectory_points_y
+        elif len(self.new_trayectory_points_x) <= self.degree:
+            rax, ray = self.approximate_b_spline_path(self.new_trayectory_points_x, self.new_trayectory_points_y, self.n_course_point, len(self.new_trayectory_points_x)-1)
         else:
-            rax, ray = self.approximate_b_spline_path(self.trayectory_points_x, self.trayectory_points_y, self.n_course_point, self.degree)
+            rax, ray = self.approximate_b_spline_path(self.new_trayectory_points_x, self.new_trayectory_points_y, self.n_course_point, self.degree)
 
         # self.marker_array_path_planning(midpoint_x_list, midpoint_y_list)
         self.update_path(rax, ray)
@@ -178,6 +180,8 @@ class Path_planning(object):
         :param y: Lista de puntos medios en coordenadas globales en el eje y a anadir
         '''
         loop = len(x)
+        self.new_trayectory_points_x = []
+        self.new_trayectory_points_y = []
         for i in range(loop):
             rx = x.reshape(-1, 1)
             ry = y.reshape(-1, 1)
@@ -186,6 +190,8 @@ class Path_planning(object):
             index_min = np.argmin(distances)
             self.trayectory_points_x.append(x[index_min])
             self.trayectory_points_y.append(y[index_min])
+            self.new_trayectory_points_x.append(x[index_min])
+            self.new_trayectory_points_y.append(y[index_min])
             x = np.delete(x, index_min)
             y = np.delete(y, index_min)
 

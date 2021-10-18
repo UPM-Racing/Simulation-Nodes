@@ -7,8 +7,8 @@ import csv
 
 class ErrorMeasurementClass(object):
     def __init__(self):
-        # self.state_sub = rospy.Subscriber('/path_pub', Path, self.state_callback)
-        self.state_sub = rospy.Subscriber('/slam_path_pub', Path, self.state_callback)
+        self.state_sub = rospy.Subscriber('/path_pub', Path, self.state_callback)
+        # self.state_sub = rospy.Subscriber('/slam_path_pub', Path, self.state_callback)
         self.ground_truth_sub = rospy.Subscriber('/ground_path_pub', Path, self.ground_truth_callback)
 
         self.state_path = Path()
@@ -49,7 +49,7 @@ class ErrorMeasurementClass(object):
         rms = np.sqrt(np.mean(np.square(np.array(distancias))))
 
         if rms > 0:
-            with open('../catkin_ws/results/Error_measurement_slam2.csv', 'ab') as csvfile:
+            with open('../catkin_ws/results/Error_measurement_ekf_slam.csv', 'ab') as csvfile:
                 writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
                 writer.writerow([rms, distancias[-1]])
             # print(rms)
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     rospy.init_node('error_measurement_node', anonymous=True)
     error_measurement = ErrorMeasurementClass()
     rate = rospy.Rate(10)  # Hz
-    with open('../catkin_ws/results/Error_measurement_slam2.csv', 'w') as csvfile:
+    with open('../catkin_ws/results/Error_measurement_ekf_slam.csv', 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter='\t', lineterminator='\n', )
         writer.writerow(['RMS measurement', 'Last error measurement'])
 
