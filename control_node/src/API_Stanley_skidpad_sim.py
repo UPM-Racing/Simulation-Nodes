@@ -11,6 +11,8 @@ import Algoritmo_Stanley
 
 
 class State(object):
+    VEL_THRESHOLD = 1e-4
+
     def __init__(self):
         self.stanley_class = Algoritmo_Stanley.Stanley()
 
@@ -32,7 +34,7 @@ class State(object):
 
     def callbackgps(self, data):
         v = np.sqrt(data.vector.x ** 2 + data.vector.y ** 2)  # [m/s]
-        if v == 0:
+        if v <= State.VEL_THRESHOLD:
             self.start.publish(True)      # to go from state OFF to state DRIVING
         self.stanley_class.update_velocity(v)
 
