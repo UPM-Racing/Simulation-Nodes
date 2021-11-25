@@ -11,6 +11,7 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion, Vector3Stamped
 from eufs_msgs.msg import WheelSpeedsStamped
 from visualization_msgs.msg import MarkerArray, Marker
+from GPS import GPS
 
 import Kinematic_state_estimation as state_estimation
 
@@ -18,7 +19,7 @@ class EKF_Class(object):
     def __init__(self):
         # Inicializacion de variables
         self.car = state_estimation.Car()
-        self.gps = state_estimation.Gps()
+        self.gps = GPS()
         self.first = 2
 
         ''' Topicos de ROS '''

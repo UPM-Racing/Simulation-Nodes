@@ -10,6 +10,7 @@ from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray
 from sensor_msgs.msg import NavSatFix
 from ackermann_msgs.msg import AckermannDriveStamped
+from GPS import GPS
 
 # import Ekf_Slam as slam
 import Slam1 as slam
@@ -21,7 +22,7 @@ class Slam_Class(object):
         self.slam = slam.SLAM()
         if FASTSLAM:
             if slam.WITH_EKF:
-                self.gps = slam.Gps()
+                self.gps = GPS()
 
         ''' Topicos de ROS '''
         # Subscriber de la entrada de observaciones de conos
