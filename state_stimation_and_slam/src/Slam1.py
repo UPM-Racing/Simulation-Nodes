@@ -10,6 +10,8 @@ from geometry_msgs.msg import Pose, Point, PoseStamped, Quaternion, Vector3Stamp
 from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray, Marker
 
+from Particle import Particle
+
 
 WITH_EKF = True
 
@@ -18,33 +20,6 @@ R = np.diag([0.5, np.deg2rad(30.0)]) ** 2
 
 N_PARTICLE = 50 #50  # number of particle
 NTH = N_PARTICLE / 1.5  # Number of particle for re-sampling
-
-class Particle:
-    def __init__(self, n_landmark):
-        # Estado del coche y landmarks en la particula
-        self.x = 0.0
-        self.y = 0.0
-        self.yaw = 0.0
-        self.lm = np.zeros((n_landmark, 2))  # Posicion x-y de cada landmark
-
-        # Variables para los calculos
-        self.w = 1.0 / N_PARTICLE  # Peso de la particula
-        self.lmP = np.zeros((n_landmark * 2, 2))  # Covarianza de la posicion de cada landmark
-        if WITH_EKF:
-            self.p_cov = np.eye(3)  # Covarianza de la posicion del coche
-
-    def expand_particle(self, number_particles):
-        '''
-        Anade a la particula un nuevo landmark.
-
-        :param number_particles: Numero de landmarks a anadir
-        '''
-        v_add = np.zeros((number_particles, 2))
-        v_add_cov = np.zeros((number_particles*2, 2))
-
-        self.lm = np.vstack((self.lm, v_add))
-        self.lmP = np.vstack((self.lmP, v_add_cov))
-
 
 class SLAM:
     def __init__(self):
@@ -73,7 +48,7 @@ class SLAM:
         self.state_yaw = 0.0
 
         # Se crean las particulas vacias para que se expandan con la llegada de landmarks
-        self.particles = [Particle(0) for _ in range(N_PARTICLE)]
+        self.particles = [Particle(0, 1.0/N_PARTICLE, WITH_EKF) for _ in range(N_PARTICLE)]
 
         ''' Variables configurables '''
         # Datos del coche

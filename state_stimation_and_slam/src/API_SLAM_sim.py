@@ -13,7 +13,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from GPS import GPS
 
 # import Ekf_Slam as slam
-import Slam1 as slam
+import Slam2 as slam
 FASTSLAM = True
 
 class Slam_Class(object):
