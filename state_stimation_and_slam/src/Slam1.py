@@ -21,7 +21,7 @@ R = np.diag([0.5, np.deg2rad(30.0)]) ** 2
 N_PARTICLE = 50 #50  # number of particle
 NTH = N_PARTICLE / 1.5  # Number of particle for re-sampling
 
-class SLAM:
+class SLAM(object):
     def __init__(self):
         ''' Variables no configurables '''
         # Estado del coche
