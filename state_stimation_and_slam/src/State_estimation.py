@@ -8,76 +8,7 @@ from sensor_msgs.msg import Imu
 from sensor_msgs.msg import NavSatFix
 from eufs_msgs.msg import WheelSpeedsStamped
 from visualization_msgs.msg import MarkerArray, Marker
-
-class Gps():
-  def __init__(self):
-    self.a = 6378137
-    self.b = 6356752.3142
-    self.f = (self.a - self.b) / self.a
-    self.e_sq = self.f * (2 - self.f)
-
-    self.LONGITUD_0 = 0
-    self.LATITUD_0 = 0
-    self.ALTURA_0 = 0
-
-  def geodetic_to_ecef(self, lat, lon, h):
-    # (lat, lon) in WSG-84 degrees
-    # h in meters
-    lamb = math.radians(lat)
-    phi = math.radians(lon)
-    s = math.sin(lamb)
-    N = self.a / math.sqrt(1 - self.e_sq * s * s)
-
-    sin_lambda = math.sin(lamb)
-    cos_lambda = math.cos(lamb)
-    sin_phi = math.sin(phi)
-    cos_phi = math.cos(phi)
-
-    x = (h + N) * cos_lambda * cos_phi
-    y = (h + N) * cos_lambda * sin_phi
-    z = (h + (1 - self.e_sq) * N) * sin_lambda
-
-    return x, y, z
-
-  def ecef_to_enu(self, x, y, z, lat0, lon0, h0):
-    lamb = math.radians(lat0)
-    phi = math.radians(lon0)
-    s = math.sin(lamb)
-    N = self.a / math.sqrt(1 - self.e_sq * s * s)
-
-    sin_lambda = math.sin(lamb)
-    cos_lambda = math.cos(lamb)
-    sin_phi = math.sin(phi)
-    cos_phi = math.cos(phi)
-
-    x0 = (h0 + N) * cos_lambda * cos_phi
-    y0 = (h0 + N) * cos_lambda * sin_phi
-    z0 = (h0 + (1 - self.e_sq) * N) * sin_lambda
-
-    xd = x - x0
-    yd = y - y0
-    zd = z - z0
-
-    xEast = -sin_phi * xd + cos_phi * yd
-    yNorth = -cos_phi * sin_lambda * xd - sin_lambda * sin_phi * yd + cos_lambda * zd
-    zUp = cos_lambda * cos_phi * xd + cos_lambda * sin_phi * yd + sin_lambda * zd
-
-    return xEast, yNorth
-
-  def geodetic_to_enu(self, lat, lon, h, lat_ref, lon_ref, h_ref):
-    x, y, z = self.geodetic_to_ecef(lat, lon, h)
-
-    return self.ecef_to_enu(x, y, z, lat_ref, lon_ref, h_ref)
-
-  def gps_loop(self, latitude, longitude, altitude):
-    if self.LONGITUD_0 == 0:
-      self.LONGITUD_0 = longitude
-      self.LATITUD_0 = latitude
-      self.ALTURA_0 = altitude
-
-    gps_coordinates = self.geodetic_to_enu(latitude, longitude, altitude, self.LATITUD_0, self.LONGITUD_0, self.ALTURA_0)
-
-    return gps_coordinates
+from GPS import GPS
 
 # Class of the car definition
 class Car():
@@ -242,7 +173,7 @@ class EKF_Class(object):
         self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
         #self.imu_angle_sub = rospy.Subscriber('/imu', Imu, self.imu_angle_callback)
 
-        self.gps = Gps()
+        self.gps = GPS()
         self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
         self.path_pub = rospy.Publisher('/path_pub', Path, queue_size=1)
         self.pose_pub = rospy.Publisher('/pose_pub', PoseStamped, queue_size=1)
