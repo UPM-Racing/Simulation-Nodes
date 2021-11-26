@@ -59,7 +59,8 @@ class EKF_Class(object):
         longitude = msg.longitude
         altitude = msg.altitude
         x, y = self.gps.gps_to_local(latitude, longitude, altitude)
-        gps_values = np.array([y, -x])
+        #gps_values = np.array([y, -x])
+        gps_values = np.array([x, y])
 
         if self.car.car_created:
             self.car.updateStep(gps_values)
@@ -84,7 +85,8 @@ class EKF_Class(object):
             self.car.updateStepVel(velocity_mean)
 
     def imu_callback(self, msg):
-        imudata_linear = np.array([msg.linear_acceleration.y, -msg.linear_acceleration.x])
+        #imudata_linear = np.array([msg.linear_acceleration.y, -msg.linear_acceleration.x])
+        imudata_linear = np.array([msg.linear_acceleration.x, msg.linear_acceleration.y])
         time_sec = msg.header.stamp.secs
         time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
         timestamp = time_sec + time_nsec
