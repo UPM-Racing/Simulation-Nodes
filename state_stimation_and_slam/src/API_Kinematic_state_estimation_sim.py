@@ -8,9 +8,10 @@ from sensor_msgs.msg import Imu
 from sensor_msgs.msg import NavSatFix
 
 from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped, Vector3Stamped
+from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion, Vector3Stamped
 from eufs_msgs.msg import WheelSpeedsStamped
 from visualization_msgs.msg import MarkerArray, Marker
+from GPS import GPS
 
 import Kinematic_state_estimation as state_estimation
 
@@ -18,7 +19,7 @@ class EKF_Class(object):
     def __init__(self):
         # Inicializacion de variables
         self.car = state_estimation.Car()
-        self.gps = state_estimation.Gps()
+        self.gps = GPS()
         self.first = 2
 
         ''' Topicos de ROS '''
@@ -58,7 +59,7 @@ class EKF_Class(object):
         longitude = msg.longitude
         altitude = msg.altitude
         x, y = self.gps.gps_to_local(latitude, longitude, altitude)
-        gps_values = np.array([y, -x])
+        gps_values = np.array([x, y])
 
         if self.car.car_created:
             self.car.updateStep(gps_values)
@@ -83,7 +84,7 @@ class EKF_Class(object):
             self.car.updateStepVel(velocity_mean)
 
     def imu_callback(self, msg):
-        imudata_linear = np.array([msg.linear_acceleration.y, -msg.linear_acceleration.x])
+        imudata_linear = np.array([msg.linear_acceleration.x, msg.linear_acceleration.y])
         time_sec = msg.header.stamp.secs
         time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
         timestamp = time_sec + time_nsec
