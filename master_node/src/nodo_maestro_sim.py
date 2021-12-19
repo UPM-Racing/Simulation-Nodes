@@ -90,7 +90,7 @@ if __name__ == "__main__":
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/skidpad_sim.launch"])
         launch2.start()
     elif master_node.state == 'AUTOCROSS':
-        launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/nodos.launch"])
+        launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/autocross_sim.launch"])
         launch2.start()
     elif master_node.state == 'TRACKDRIVE':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/trackdrive_sim.launch"])
