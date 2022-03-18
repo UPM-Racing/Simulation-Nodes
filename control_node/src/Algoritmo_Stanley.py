@@ -107,7 +107,7 @@ class Stanley(object):
     def pid_control(self, target):
         accel = Kp * (target - self.v) + ki * (target - self.v) * dt + kd * (
                 target - self.v) / dt
-        self.acceleration = np.clip(accel, -max_accel, max_accel)        # Freno por inercia, maxima aceleracion 1 m/s^2
+        self.acceleration = np.clip(accel, -max_accel, max_accel)        
 
         #print("Aceleracion: {}".format(accel))
 
