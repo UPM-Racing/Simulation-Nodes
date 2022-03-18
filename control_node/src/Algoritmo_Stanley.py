@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 
+from cmath import sqrt
 import numpy as np
 import math
 import scipy.interpolate as scipy_interpolate
@@ -14,6 +15,13 @@ Ke = 5                                      # control gain
 Kv = 1
 max_steer = 27.2 * np.pi / 180              # [rad] max steering angle
 max_accel = 1.0                             # [m/s^2] max acceleration
+indice_prev=0 
+vuelta_reconomiento=0
+
+VEL_THRESHOLD = 1e-4
+
+
+
 
 
 class Stanley(object):
@@ -28,19 +36,28 @@ class Stanley(object):
         self.steering_angle = 0.0
         self.acceleration = 0.0
 
+        self.flag_entrada_circulo=0
+
+        self.contador_de_vuelta=0.0
+        
         self.rmse_acumulado = 0.0
         self.error = []
         self.error_cuadrado = []
         self.error_maximo = 0.0
+        self.finish_flag=0 
 
     def principal_loop(self, path_planning):
         poses = path_planning.poses
         positions_x = []
         positions_y = []
+        global vuelta_reconomiento
+
+
 
         for i, pose in enumerate(poses):
             positions_x.append(pose.pose.position.x)
             positions_y.append(pose.pose.position.y)
+        
         path_x, path_y = self.interpolate_b_spline_path(positions_x, positions_y, self.n_course_point, self.degree)
 
         if len(positions_x) > self.degree:
@@ -51,6 +68,16 @@ class Stanley(object):
         if 'path_x' in locals():
             self.stanley_control(path_x, path_y)
             self.pid_control(target_speed)
+
+        if self.finish_flag==1 and self.v<VEL_THRESHOLD     :
+            print("mision status =finish ")
+
+        if (positions_x[0]==positions_x[-1] and  positions_y[0]==positions_y[-1]) and vuelta_reconomiento==0:
+            print ("vuelta de reconocimiento ")
+            vuelta_reconomiento=1
+
+       
+
 
     def interpolate_b_spline_path(self, x, y, n_path_points, degree):
         """
@@ -80,9 +107,9 @@ class Stanley(object):
     def pid_control(self, target):
         accel = Kp * (target - self.v) + ki * (target - self.v) * dt + kd * (
                 target - self.v) / dt
-        self.acceleration = np.clip(accel, 0, max_accel)        # Freno por inercia, maxima aceleracion 1 m/s^2
+        self.acceleration = np.clip(accel, -max_accel, max_accel)        
 
-        # print("Aceleracion: {}".format(accel))
+        #print("Aceleracion: {}".format(accel))
 
     def stanley_control(self, path_x, path_y):
         current_target_idx = self.calc_target_spline(path_x, path_y)
@@ -141,6 +168,8 @@ class Stanley(object):
         """
         min_idx = 0
         min_dist = float("inf")
+        global indice_prev
+        global target_speed
 
         # Search nearest waypoint
         for i in range(len(path_x)):
@@ -148,6 +177,21 @@ class Stanley(object):
             if dist < min_dist:
                 min_dist = dist
                 min_idx = i
+        
+        
+        
+        if (min_idx - indice_prev)<0 and vuelta_reconomiento==1 :
+            self.flag_entrada_circulo=1
+            
+        if (self.flag_entrada_circulo==1 and np.linalg.norm(np.array([path_x[0] - self.x, path_y[0] - self.y]))>6 ):
+            self.contador_de_vuelta=self.contador_de_vuelta+1
+            print("se ha dado una vuelta contador = %d " % self.contador_de_vuelta )
+            self.flag_entrada_circulo=0
+
+        if self.contador_de_vuelta==10:
+            target_speed=0
+            self.finish_flag=1
+        indice_prev=min_idx
 
         return min_idx
 

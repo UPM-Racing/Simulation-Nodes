@@ -272,3 +272,8 @@ cython_debug/
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,pycharm
 .vscode/*
+
+
+coordinate_transformation.py
+cubic_spline_planner.py
+
