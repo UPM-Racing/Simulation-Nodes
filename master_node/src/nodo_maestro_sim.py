@@ -84,7 +84,7 @@ if __name__ == "__main__":
         rospy.sleep(0.1)
 
     if master_node.state == 'ACCELERATION':
-        launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/nodos.launch"])
+        launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/acceleration_sim.launch"])
         launch2.start()
     elif master_node.state == 'SKIDPAD':
         launch2 = roslaunch.parent.ROSLaunchParent(uuid, [launch_path + "/skidpad_sim.launch"])
