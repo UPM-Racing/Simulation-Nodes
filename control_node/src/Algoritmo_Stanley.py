@@ -14,9 +14,13 @@ target_speed = 10.0 / 3.6                   # [m/s]
 Ke = 5                                      # control gain
 Kv = 1
 max_steer = 27.2 * np.pi / 180              # [rad] max steering angle
-max_accel = 1.0                             # [m/s^2] max acceleration
-indice_prev=0 
+max_accel = 1.0                             #[m/s^2] max desacceleration
+mu=0.8                                      #coef ade
+max_desaccel=mu*9.8*0.5                          # [m/s^2] max desacceleration 0.5 safety factor 
 vuelta_reconomiento=0
+dist_inicio=6
+target_vuelta=1
+indice_prev=0
 
 VEL_THRESHOLD = 1e-4
 
@@ -32,11 +36,13 @@ class Stanley(object):
         self.yaw = 0.0
         self.n_course_point = 200
         self.degree = 3
+        
 
         self.steering_angle = 0.0
         self.acceleration = 0.0
 
         self.flag_entrada_circulo=0
+        
 
         self.contador_de_vuelta=0.0
         
@@ -183,12 +189,12 @@ class Stanley(object):
         if (min_idx - indice_prev)<0 and vuelta_reconomiento==1 :
             self.flag_entrada_circulo=1
             
-        if (self.flag_entrada_circulo==1 and np.linalg.norm(np.array([path_x[0] - self.x, path_y[0] - self.y]))>6 ):
+        if (self.flag_entrada_circulo==1 and np.linalg.norm(np.array([path_x[0] - self.x, path_y[0] - self.y]))>dist_inicio ):
             self.contador_de_vuelta=self.contador_de_vuelta+1
             print("se ha dado una vuelta contador = %d " % self.contador_de_vuelta )
             self.flag_entrada_circulo=0
 
-        if self.contador_de_vuelta==10:
+        if self.contador_de_vuelta==target_vuelta:
             target_speed=0
             self.finish_flag=1
         indice_prev=min_idx
