@@ -6,23 +6,25 @@ import math
 import scipy.interpolate as scipy_interpolate
 import scipy.signal as scipe_signal
 from scipy.signal import _peak_finding
-
+import matplotlib.pyplot as plt
 
 Kp = 1.0                                    # speed proportional gain
 ki = 1.0                                    # speed integral gain
 kd = 0.1                                    # speed derivational gain
 dt = 0.1                                    # [s] time difference
 target_speed = 10.0 / 3.6                   # [m/s]
-Ke = 6                                      # control gain
-Kv = 1
+Ke = 5                                     # control gain
+Kv = 1.0
 max_steer = 27.2 * np.pi / 180              # [rad] max steering angle
-max_accel = 1.0                             #[m/s^2] max desacceleration
+max_accel = 3.0
+min_accel=-5.0                             #[m/s^2] max desacceleration
 mu=0.8                                      #coef ade
 max_desaccel=mu*9.8*0.5                          # [m/s^2] max desacceleration 0.5 safety factor 
 vuelta_reconomiento=0
 dist_inicio=6
 target_vuelta=3
 indice_prev=0
+flag_velProf=0
 
 VEL_THRESHOLD = 1e-4
 
@@ -56,10 +58,12 @@ class Stanley(object):
 
     def principal_loop(self, path_planning):
         poses = path_planning.poses
+        
         positions_x = []
         positions_y = []
         global vuelta_reconomiento
         global target_speed
+       
 
 
 
@@ -78,7 +82,7 @@ class Stanley(object):
             current_target=self.stanley_control(path_x, path_y)
             
             if vuelta_reconomiento==1 and self.finish_flag==0:
-                VelProf=self.speed_profile(path_x, path_y)
+                VelProf=self.speed_profile(path_x, path_y,self.v)
                 target_speed=VelProf[current_target]
                 print("target speed =" ,target_speed)
             
@@ -87,14 +91,14 @@ class Stanley(object):
             self.pid_control(target_speed)
             print("Actual speed =" ,self.v)
 
-        if self.finish_flag==1 and self.v<VEL_THRESHOLD     :
+        if self.finish_flag==1 and self.v<VEL_THRESHOLD :
             print("mision status =finish ")
 
         if (positions_x[0]==positions_x[-1] and  positions_y[0]==positions_y[-1]) and vuelta_reconomiento==0:
             print ("vuelta de reconocimiento ")
             vuelta_reconomiento=1
 
-    def speed_profile(self,x,y):
+    def speed_profile(self,x,y,v):
 
         """
         INPUT DATA
@@ -110,10 +114,10 @@ class Stanley(object):
         % OUTPUT DATA
         % velProf = velocity profile of the given track
         """
-        m = 100
-        ftmax =3
+        m = 190
+        ftmax =4
         fbmax = -5
-        fnmax = 8 
+        fnmax = 6 
         n=len(x)
         ftmax = ftmax*m # traction max
         fbmax = -fbmax*m # braking max
@@ -187,7 +191,7 @@ class Stanley(object):
         #     print("peak[]=%f" %     peaks[i])
         
         ## start section 
-        accel[0]=0
+        accel[0]=v
         if len(peaks)>1:
             for i in range(1,peaks[1]+1):
                 accel[i]=np.sqrt(2*np.sqrt((ftmax)**2-((m*K[i-1]*accel[i-1]**2)**2*(ftmax/fnmax)**2))*(lon[i]-lon[i-1])/m + accel[i-1]**2)
@@ -312,7 +316,7 @@ class Stanley(object):
     def pid_control(self, target):
         accel = Kp * (target - self.v) + ki * (target - self.v) * dt + kd * (
                 target - self.v) / dt
-        self.acceleration = np.clip(accel, -max_accel, max_accel)        
+        self.acceleration = np.clip(accel, min_accel, max_accel)        
 
         #print("Aceleracion: {}".format(accel))
 
