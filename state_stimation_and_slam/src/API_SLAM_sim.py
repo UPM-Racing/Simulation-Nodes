@@ -23,6 +23,9 @@ class Slam_Class(object):
         if FASTSLAM:
             if slam.WITH_EKF:
                 self.gps = GPS()
+        
+        self.vuelta = False     # Variable para recibir de control la señal de vuelta terminada
+        self.encendido = True   # Variable para saber si el slam está activo
 
         ''' Topicos de ROS '''
         # Subscriber de la entrada de observaciones de conos
@@ -43,6 +46,10 @@ class Slam_Class(object):
         self.slam_marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
         if FASTSLAM:
             self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
+        
+        # Publishers de apagado de SLAM
+        self.path_end_pub = rospy.Publisher('/slam_path_end_pub', Path, queue_size=1)
+        self.pose_end_pub = rospy.Publisher('/slam_pose_end_pub', PoseStamped, queue_size=1)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
@@ -86,7 +93,18 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         if FASTSLAM:
             slam_class.marker_array_pub.publish(slam_class.slam.marker_ests)
-        slam_class.slam_marker_array_pub.publish(slam_class.slam.slam_marker_ests)
-        slam_class.path_pub.publish(slam_class.slam.path)
-        slam_class.pose_pub.publish(slam_class.slam.pose)
+
+        if slam_class.encendido:
+            slam_class.slam_marker_array_pub.publish(slam_class.slam.slam_marker_ests)
+            slam_class.path_pub.publish(slam_class.slam.path)
+            slam_class.pose_pub.publish(slam_class.slam.pose)
+
+        if slam_class.vuelta and slam_class.encendido:
+            slam_class.cones_sub.unregister()
+            slam_class.cones_sub.unregister()
+            slam_class.gps_sub.unregister()
+            slam_class.encendido = False
+            slam_class.pose_end_pub.publish(slam_class.slam.pose)
+            slam_class.path_end_pub.publish(slam_class.slam.path)
+        
         rate.sleep()

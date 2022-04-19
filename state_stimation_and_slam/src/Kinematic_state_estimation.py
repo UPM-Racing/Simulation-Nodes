@@ -2,6 +2,7 @@
 import rospy
 import numpy as np
 import math
+import copy
 from nav_msgs.msg import Path
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion, Vector3Stamped
 from GPS import GPS
@@ -33,9 +34,13 @@ class Car():
 
         # Inicializacion de variables para Rviz
         self.path = Path()
+        
+
         self.pose = PoseStamped()
         self.control_msg = WheelSpeedsStamped()
         self.marker_ests = MarkerArray()
+        self.length = 0     # Longitud del array path.poses local
+        self.n = 0          # Diferencia entre longitudes de path.poses local y global
 
         ''' Variables configurables '''
         # Datos del coche
@@ -228,7 +233,7 @@ class Car():
         pose.pose.orientation = orientation
         self.path.poses.append(pose)
         self.pose = pose
-        self.plot_covariance_ellipse()
+        self.plot_covariance_ellipse()  
 
     def publish_control(self):
         '''
