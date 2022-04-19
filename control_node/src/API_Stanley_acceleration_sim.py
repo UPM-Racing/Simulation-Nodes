@@ -23,6 +23,8 @@ class State(object):
         # self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
+        self.finish=rospy.Publisher('/Finish',Int16,queue_size=1)
+        self.cot_vuelta=rospy.Publisher('/cont_vuelta',Int16,queue_size=1)
 
         self.ack_msg = AckermannDriveStamped()
         self.ack_msg.header.frame_id = "map"
