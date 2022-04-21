@@ -22,7 +22,7 @@ mu=0.8                                      #coef ade
 max_desaccel=mu*9.8*0.5                          # [m/s^2] max desacceleration 0.5 safety factor 
 vuelta_reconomiento=0
 dist_inicio=6
-target_vuelta=3
+
 indice_prev=0
 flag_velProf=0
 
@@ -40,6 +40,7 @@ class Stanley(object):
         self.yaw = 0.0
         self.n_course_point = 200
         self.degree = 3
+        self.target_vuelta=3
         
 
         self.steering_angle = 0.0
@@ -115,9 +116,9 @@ class Stanley(object):
         % velProf = velocity profile of the given track
         """
         m = 190
-        ftmax =4
-        fbmax = -5
-        fnmax = 6 
+        ftmax =2
+        fbmax = -2
+        fnmax = 4 
         n=len(x)
         ftmax = ftmax*m # traction max
         fbmax = -fbmax*m # braking max
@@ -253,11 +254,15 @@ class Stanley(object):
                         decel[j]=np.sqrt(2*np.sqrt((fbmax)**2-((m*K[j+1]*decel[j+1]**2)**2*(fbmax/fnmax)**2))*(lon[j+1]-lon[j])/m + decel[j+1]**2)
                     
         
-        if (len(peaks)==1):
+        if (len(peaks)<2):
             for i in range(n):
                 velProf[i]=v
         else:
             velProf=np.minimum(accel,decel)
+        
+
+        velProf[0]=v
+        velProf[1]=v
         
         
 
@@ -398,7 +403,7 @@ class Stanley(object):
             print("se ha dado una vuelta contador = %d " % self.contador_de_vuelta )
             self.flag_entrada_circulo=0
 
-        if self.contador_de_vuelta==target_vuelta:
+        if self.contador_de_vuelta==self.target_vuelta:
             
             self.finish_flag=1
         indice_prev=min_idx

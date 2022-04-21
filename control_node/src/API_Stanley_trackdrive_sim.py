@@ -16,6 +16,8 @@ class State(object):
 
     def __init__(self):
         self.stanley_class = Algoritmo_Stanley.Stanley()
+        self.stanley_class.target_vuelta=2
+        
 
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)

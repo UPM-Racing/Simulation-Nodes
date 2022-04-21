@@ -12,8 +12,11 @@ import Algoritmo_Stanley
 
 
 class State(object):
+    VEL_THRESHOLD = 1e-4
+
     def __init__(self):
         self.stanley_class = Algoritmo_Stanley.Stanley()
+        self.stanley_class.target_vuelta=1
 
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
@@ -35,7 +38,8 @@ class State(object):
 
     def callbackgps(self, data):
         v = np.sqrt(data.vector.x ** 2 + data.vector.y ** 2)  # [m/s]
-        if v == 0:
+        #if v == 0:
+        if v <= State.VEL_THRESHOLD:
             self.start.publish(True)      # to go from state OFF to state DRIVING
         self.stanley_class.update_velocity(v)
 
