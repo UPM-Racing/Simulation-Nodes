@@ -8,6 +8,8 @@ from ackermann_msgs.msg import AckermannDriveStamped
 import numpy as np
 import rospy
 import Algoritmo_Stanley
+from std_msgs.msg import Int16
+
 
 
 class State(object):

@@ -1,9 +1,11 @@
 #! /usr/bin/env python
+from pickle import TRUE
 import rospy
 import math
 import numpy as np
 import csv
 
+from std_msgs.msg import Int16
 from eufs_msgs.msg import ConeArrayWithCovariance
 from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from nav_msgs.msg import Path
@@ -24,8 +26,8 @@ class Slam_Class(object):
             if slam.WITH_EKF:
                 self.gps = GPS()
         
-        self.vuelta = False     # Variable para recibir de control la señal de vuelta terminada
-        self.encendido = True   # Variable para saber si el slam está activo
+        self.vuelta = False     # Variable para recibir de control la senal de vuelta terminada
+        self.encendido = True   # Variable para saber si el slam esta activo
 
         ''' Topicos de ROS '''
         # Subscriber de la entrada de observaciones de conos
@@ -40,6 +42,9 @@ class Slam_Class(object):
             if slam.WITH_EKF:
                 self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
 
+        # Subscriber para recibir contador de vuelta
+        # self.vuelta_sub = rospy.Subscriber('/cont_vuelta', Int16, self.vuelta_callback)
+
         # Publishers de SLAM
         self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
         self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
@@ -48,8 +53,8 @@ class Slam_Class(object):
             self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
         
         # Publishers de apagado de SLAM
-        self.path_end_pub = rospy.Publisher('/slam_path_end_pub', Path, queue_size=1)
-        self.pose_end_pub = rospy.Publisher('/slam_pose_end_pub', PoseStamped, queue_size=1)
+        # self.path_end_pub = rospy.Publisher('/slam_path_end_pub', Path, queue_size=1)
+        # self.pose_end_pub = rospy.Publisher('/slam_pose_end_pub', PoseStamped, queue_size=1)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
@@ -77,6 +82,12 @@ class Slam_Class(object):
         gps_values = np.array([x, y])
         self.slam.updateStep(gps_values)
 
+    # def vuelta_callback(self, msg):
+    #     if msg >= 1:
+    #         self.vuelta = True
+
+    
+
 
 if __name__ == '__main__':
     rospy.init_node('slam_node', anonymous=True)
@@ -103,6 +114,7 @@ if __name__ == '__main__':
             slam_class.cones_sub.unregister()
             slam_class.cones_sub.unregister()
             slam_class.gps_sub.unregister()
+            slam_class.vuelta_sub.unregister()
             slam_class.encendido = False
             slam_class.pose_end_pub.publish(slam_class.slam.pose)
             slam_class.path_end_pub.publish(slam_class.slam.path)

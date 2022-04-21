@@ -24,8 +24,9 @@ class EKF_Class(object):
         self.gps = GPS()
         self.first = 2
         
-        self.vuelta = 1     # Variable para recibir de control la senal de vuelta terminada
-        self.encendido = True   # Variable para saber si el slam esta activo
+        self.vuelta = 0     # Variable para recibir de control la senal de vuelta terminada
+        self.encendido = False   # Variable para saber si el slam esta activo
+        self.ami_state = 10
 
         ''' Topicos de ROS '''
 
@@ -43,7 +44,7 @@ class EKF_Class(object):
 
         # Subscriber para recibir los datos del Slam
         self.path_slam_sub = rospy.Subscriber('/slam_path_end_pub', Path, self.path_slam_callback)
-        self.pose_slam_sub = rospy.Subscriber('/slam_pose_end_pub', Pose, self.pose_slam_callback)
+        self.pose_slam_sub = rospy.Subscriber('/slam_pose_end_pub', PoseStamped, self.pose_slam_callback)
 
         # Publishers de state estimation
         self.path_pub = rospy.Publisher('/path_pub', Path, queue_size=1)
@@ -115,9 +116,7 @@ class EKF_Class(object):
                 self.car.imu_past_time = timestamp
 
     def callbackstate(self, msg):
-        if self.encendido:
-            if msg.ami_state == 13 and self.vuelta > 0 or msg.ami_state != 13:
-                self.encendido = True
+        self.ami_state = msg.ami_state
 
     def path_slam_callback(self, msg):
         self.car.path = msg
@@ -133,6 +132,12 @@ if __name__ == '__main__':
     rate = rospy.Rate(50)  # Frecuencia de los publishers (Hz)
 
     while not rospy.is_shutdown():
+
+        # print(ekf_class.encendido)
+
+        if not ekf_class.encendido:
+            if ekf_class.ami_state == 14 and ekf_class.vuelta > 0 or ekf_class.ami_state != 14 and ekf_class.ami_state != 10:
+                ekf_class.encendido = True
 
         if ekf_class.encendido:
             ekf_class.path_pub.publish(ekf_class.car.path)

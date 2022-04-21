@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 
 from std_msgs.msg import Bool
-from std_msgs.msg import Int16
 from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from nav_msgs.msg import Path
 from eufs_msgs.msg import CarState
@@ -13,19 +12,17 @@ import Algoritmo_Stanley
 
 class State(object):
     VEL_THRESHOLD = 1e-4
-    
+
     def __init__(self):
         self.stanley_class = Algoritmo_Stanley.Stanley()
 
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
         # self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
-        self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
-        # self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
+        # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2) #state stimation 
+        self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2) #slam 
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
-        self.finish=rospy.Publisher('/Finish',Int16,queue_size=1)
-        self.cot_vuelta=rospy.Publisher('/cont_vuelta',Int16,queue_size=1)
 
         self.ack_msg = AckermannDriveStamped()
         self.ack_msg.header.frame_id = "map"
@@ -37,6 +34,7 @@ class State(object):
 
     def callbackgps(self, data):
         v = np.sqrt(data.vector.x ** 2 + data.vector.y ** 2)  # [m/s]
+        #if v == 0:
         if v <= State.VEL_THRESHOLD:
             self.start.publish(True)      # to go from state OFF to state DRIVING
         self.stanley_class.update_velocity(v)
@@ -61,7 +59,4 @@ if __name__ == '__main__':
         state.ack_msg.drive.acceleration = state.stanley_class.acceleration
         state.ack_msg.drive.steering_angle = state.stanley_class.steering_angle
         state.control.publish(state.ack_msg)
-        state.cot_vuelta.publish(state.stanley_class.contador_de_vuelta)
-        if state.stanley_class.finish_flag==1:
-            state.finish.publish(state.stanley_class.finish_flag)
         rate.sleep()
