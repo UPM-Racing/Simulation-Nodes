@@ -20,8 +20,8 @@ class State(object):
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
         # self.real_path = rospy.Subscriber('/ground_truth/state', CarState, self.sub_callback)
-        # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2)
-        self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2)
+        # self.state_estimation_sub = rospy.Subscriber('/pose_pub', PoseStamped, self.sub_callback2) #state stimation
+        self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2) #slam
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
         self.finish=rospy.Publisher('/Finish',Int16,queue_size=1)
