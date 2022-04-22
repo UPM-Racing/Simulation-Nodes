@@ -7,14 +7,14 @@ from eufs_msgs.msg import CarState
 from ackermann_msgs.msg import AckermannDriveStamped
 import numpy as np
 import rospy
-import Algoritmo_Stanley
+import Algoritmo_Stanley_skipad
 
 
 class State(object):
     VEL_THRESHOLD = 1e-4
 
     def __init__(self):
-        self.stanley_class = Algoritmo_Stanley.Stanley()
+        self.stanley_class = Algoritmo_Stanley_skipad.Stanley()
 
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)

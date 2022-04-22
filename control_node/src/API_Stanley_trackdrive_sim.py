@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 from std_msgs.msg import Bool
+from std_msgs.msg import Int16
 from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from nav_msgs.msg import Path
 from eufs_msgs.msg import CarState
@@ -15,6 +16,8 @@ class State(object):
 
     def __init__(self):
         self.stanley_class = Algoritmo_Stanley.Stanley()
+        self.stanley_class.target_vuelta=2
+        
 
         self.gps_vel = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.callbackgps)
         self.path_planning_sub = rospy.Subscriber('/path_planning_pub', Path, self.callbackpath)
@@ -23,6 +26,8 @@ class State(object):
         self.state_estimation_sub = rospy.Subscriber('/slam_pose_pub', PoseStamped, self.sub_callback2) #slam 
         self.control = rospy.Publisher('/cmd_vel_out', AckermannDriveStamped, queue_size=1)
         self.start = rospy.Publisher('/ros_can/mission_flag', Bool, queue_size=1)
+        self.finish=rospy.Publisher('/Finish',Int16,queue_size=1)
+        self.cot_vuelta=rospy.Publisher('/cont_vuelta',Int16,queue_size=1)
 
         self.ack_msg = AckermannDriveStamped()
         self.ack_msg.header.frame_id = "map"
@@ -59,4 +64,7 @@ if __name__ == '__main__':
         state.ack_msg.drive.acceleration = state.stanley_class.acceleration
         state.ack_msg.drive.steering_angle = state.stanley_class.steering_angle
         state.control.publish(state.ack_msg)
+        state.cot_vuelta.publish(state.stanley_class.contador_de_vuelta)
+        if state.stanley_class.finish_flag==1:
+            state.finish.publish(state.stanley_class.finish_flag)
         rate.sleep()
