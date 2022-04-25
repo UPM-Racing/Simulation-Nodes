@@ -43,7 +43,7 @@ class Slam_Class(object):
                 self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
 
         # Subscriber para recibir contador de vuelta
-        # self.vuelta_sub = rospy.Subscriber('/cont_vuelta', Int16, self.vuelta_callback)
+        self.vuelta_sub = rospy.Subscriber('/cont_vuelta', Int16, self.vuelta_callback)
 
         # Publishers de SLAM
         self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
@@ -53,8 +53,8 @@ class Slam_Class(object):
             self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
         
         # Publishers de apagado de SLAM
-        # self.path_end_pub = rospy.Publisher('/slam_path_end_pub', Path, queue_size=1)
-        # self.pose_end_pub = rospy.Publisher('/slam_pose_end_pub', PoseStamped, queue_size=1)
+        self.path_end_pub = rospy.Publisher('/slam_path_end_pub', Path, queue_size=1)
+        self.pose_end_pub = rospy.Publisher('/slam_pose_end_pub', PoseStamped, queue_size=1)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
@@ -82,9 +82,9 @@ class Slam_Class(object):
         gps_values = np.array([x, y])
         self.slam.updateStep(gps_values)
 
-    # def vuelta_callback(self, msg):
-    #     if msg >= 1:
-    #         self.vuelta = True
+    def vuelta_callback(self, msg):
+        if msg >= 1:
+            self.vuelta = True
 
     
 
