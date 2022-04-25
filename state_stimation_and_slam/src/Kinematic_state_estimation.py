@@ -39,8 +39,6 @@ class Car():
         self.pose = PoseStamped()
         self.control_msg = WheelSpeedsStamped()
         self.marker_ests = MarkerArray()
-        self.length = 0     # Longitud del array path.poses local
-        self.n = 0          # Diferencia entre longitudes de path.poses local y global
 
         ''' Variables configurables '''
         # Datos del coche
