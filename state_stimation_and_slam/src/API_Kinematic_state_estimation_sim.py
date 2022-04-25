@@ -26,7 +26,7 @@ class EKF_Class(object):
         
         self.vuelta = 0     # Variable para recibir de control la senal de vuelta terminada
         self.encendido = False   # Variable para saber si el slam esta activo
-        self.ami_state = 10
+        self.ami_state = 10 # OFF
 
         ''' Topicos de ROS '''
 
@@ -52,6 +52,7 @@ class EKF_Class(object):
         self.pose_pub = rospy.Publisher('/pose_pub', PoseStamped, queue_size=1)
         self.marker_array_pub = rospy.Publisher('/covariance_ellipse_pub', MarkerArray, queue_size=1)
         self.control_for_slam_pub = rospy.Publisher('/control_for_slam', WheelSpeedsStamped, queue_size=1)
+
 
     def control_callback(self, msg):
         if self.encendido:
