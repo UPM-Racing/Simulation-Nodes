@@ -19,7 +19,7 @@ mu=0.8                                      #coef ade
 max_desaccel=mu*9.8*0.5                          # [m/s^2] max desacceleration 0.5 safety factor 
 vuelta_reconomiento=0
 dist_inicio=6
-target_vuelta=1
+target_vuelta=10
 indice_prev=0
 
 VEL_THRESHOLD = 1e-4

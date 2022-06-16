@@ -1,5 +1,6 @@
 #! /usr/bin/env python
-from pickle import TRUE
+
+# from pickle import TRUE
 import rospy
 import math
 import numpy as np
@@ -7,7 +8,7 @@ import csv
 
 from std_msgs.msg import Int16
 from eufs_msgs.msg import ConeArrayWithCovariance
-from geometry_msgs.msg import PoseStamped, Vector3Stamped
+from geometry_msgs.msg import PoseStamped, Vector3Stamped, Vector3
 from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray
 from sensor_msgs.msg import NavSatFix
@@ -47,7 +48,9 @@ class Slam_Class(object):
 
         # Publishers de SLAM
         self.path_pub = rospy.Publisher('/slam_path_pub', Path, queue_size=1)
-        self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
+        
+        #self.pose_pub = rospy.Publisher('/slam_pose_pub', PoseStamped, queue_size=1)
+        self.pose_pub = rospy.Publisher('/pose_pub', PoseStamped, queue_size=1)
         self.slam_marker_array_pub = rospy.Publisher('/slam_marker_array_pub', MarkerArray, queue_size=1)
         if FASTSLAM:
             self.marker_array_pub = rospy.Publisher('/particles_marker_array_pub', MarkerArray, queue_size=1)
@@ -55,6 +58,8 @@ class Slam_Class(object):
         # Publishers de apagado de SLAM
         self.path_end_pub = rospy.Publisher('/slam_path_end_pub', Path, queue_size=1)
         self.pose_end_pub = rospy.Publisher('/slam_pose_end_pub', PoseStamped, queue_size=1)
+        self.slam_end_pub =  rospy.Publisher('/slam_end', Int16, queue_size=1)
+        self.gps_params = rospy.Publisher('/gps_params', Vector3, queue_size=1)
 
     def cones_callback(self, msg):
         time_sec = msg.header.stamp.secs
@@ -83,7 +88,8 @@ class Slam_Class(object):
         self.slam.updateStep(gps_values)
 
     def vuelta_callback(self, msg):
-        if msg >= 1:
+        if msg.data >= 1:
+            print("Ha entrado en vuelta = 1")
             self.vuelta = True
 
     
@@ -105,18 +111,30 @@ if __name__ == '__main__':
         if FASTSLAM:
             slam_class.marker_array_pub.publish(slam_class.slam.marker_ests)
 
+        # slam_class.slam_marker_array_pub.publish(slam_class.slam.slam_marker_ests)
+        # slam_class.path_pub.publish(slam_class.slam.path)
+        # slam_class.pose_pub.publish(slam_class.slam.pose)
+
         if slam_class.encendido:
+            print("Slam encendido")
             slam_class.slam_marker_array_pub.publish(slam_class.slam.slam_marker_ests)
             slam_class.path_pub.publish(slam_class.slam.path)
             slam_class.pose_pub.publish(slam_class.slam.pose)
 
-        if slam_class.vuelta and slam_class.encendido:
+        if (slam_class.vuelta and slam_class.encendido):
+            print("Slam apagado")
             slam_class.cones_sub.unregister()
             slam_class.cones_sub.unregister()
             slam_class.gps_sub.unregister()
             slam_class.vuelta_sub.unregister()
             slam_class.encendido = False
+            slam_class.slam_end_pub.publish(1)
             slam_class.pose_end_pub.publish(slam_class.slam.pose)
             slam_class.path_end_pub.publish(slam_class.slam.path)
+            vector = Vector3()
+            vector.x = slam_class.gps.LATITUD_0
+            vector.y = slam_class.gps.LONGITUD_0
+            vector.z = slam_class.gps.ALTURA_0
+            slam_class.gps_params.publish(vector)
         
         rate.sleep()

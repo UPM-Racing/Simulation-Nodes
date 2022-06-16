@@ -9,11 +9,12 @@ from sensor_msgs.msg import Imu
 from sensor_msgs.msg import NavSatFix
 
 from nav_msgs.msg import Path
-from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion, Vector3Stamped
+from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion, Vector3Stamped, Vector3
 from eufs_msgs.msg import WheelSpeedsStamped
 from visualization_msgs.msg import MarkerArray, Marker
 from GPS import GPS
 from eufs_msgs.msg import CanState
+from std_msgs.msg import Int16
 
 import Kinematic_state_estimation as state_estimation
 
@@ -24,9 +25,10 @@ class EKF_Class(object):
         self.gps = GPS()
         self.first = 2
         
-        self.vuelta = 0     # Variable para recibir de control la senal de vuelta terminada
+        self.slam_end = 0     # Variable para recibir de slam la senal de vuelta terminada
         self.encendido = False   # Variable para saber si el slam esta activo
         self.ami_state = 10 # OFF
+        self.pose_actualiced = False
 
         ''' Topicos de ROS '''
 
@@ -38,16 +40,18 @@ class EKF_Class(object):
 
         # Subscribers para corregir el estado del coche
         self.gps_sub = rospy.Subscriber('/gps', NavSatFix, self.gps_callback)
-        # self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
+        self.gps_vel_sub = rospy.Subscriber('/gps_velocity', Vector3Stamped, self.gps_vel_callback)
         self.odom_sub = rospy.Subscriber('/ros_can/wheel_speeds', WheelSpeedsStamped, self.odom_callback)
         self.imu_sub = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
 
         # Subscriber para recibir los datos del Slam
         self.path_slam_sub = rospy.Subscriber('/slam_path_end_pub', Path, self.path_slam_callback)
         self.pose_slam_sub = rospy.Subscriber('/slam_pose_end_pub', PoseStamped, self.pose_slam_callback)
+        self.slam_end_sub = rospy.Subscriber('/slam_end', Int16, self.slam_callback)
+        self.gps_params_sub = rospy.Subscriber('/gps_params', Vector3, self.gps_params_callback)
 
         # Publishers de state estimation
-        self.path_pub = rospy.Publisher('/path_pub', Path, queue_size=1)
+        self.path_pub = rospy.Publisher('/path_pub', Path, queue_size=1)        
         
         self.pose_pub = rospy.Publisher('/pose_pub', PoseStamped, queue_size=1)
         self.marker_array_pub = rospy.Publisher('/covariance_ellipse_pub', MarkerArray, queue_size=1)
@@ -55,7 +59,7 @@ class EKF_Class(object):
 
 
     def control_callback(self, msg):
-        if self.encendido:
+        if self.encendido and self.pose_actualiced:
             time_sec = msg.header.stamp.secs
             time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
             time = time_sec + time_nsec
@@ -72,7 +76,7 @@ class EKF_Class(object):
             self.car.Kinematic_prediction(time, u)
 
     def gps_callback(self, msg):
-        if self.encendido:
+        if self.encendido and self.pose_actualiced:
             latitude = msg.latitude
             longitude = msg.longitude
             altitude = msg.altitude
@@ -83,7 +87,7 @@ class EKF_Class(object):
                 self.car.updateStep(gps_values)
 
     def odom_callback(self, msg):
-        if self.encendido:
+        if self.encendido and self.pose_actualiced:
             time_sec = msg.header.stamp.secs
             time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
             time = time_sec + time_nsec
@@ -96,15 +100,20 @@ class EKF_Class(object):
                 self.car.updateStepSteer(time, steering)
 
     def gps_vel_callback(self, msg):
-        if self.encendido:
+        # if self.encendido and self.pose_actualiced:
+        #     velocity = [-msg.vector.y + 1*10**-12, msg.vector.x]
+        #     velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
+
+        #     if self.car.car_created:
+        #         self.car.updateStepVel(velocity_mean)
+        
+        if not self.encendido:
             velocity = [-msg.vector.y + 1*10**-12, msg.vector.x]
             velocity_mean = math.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
-
-            if self.car.car_created:
-                self.car.updateStepVel(velocity_mean)
+            self.car.v = velocity_mean
 
     def imu_callback(self, msg):
-        if self.encendido:
+        if self.encendido and self.pose_actualiced:
             imudata_linear = np.array([msg.linear_acceleration.x, msg.linear_acceleration.y])
             time_sec = msg.header.stamp.secs
             time_nsec = float(msg.header.stamp.nsecs) / (10.0 ** 9)
@@ -115,6 +124,9 @@ class EKF_Class(object):
                 self.car.updateStepAcc(timestamp, acceleration)
             else:
                 self.car.imu_past_time = timestamp
+        else:
+            imudata_linear = np.array([msg.linear_acceleration.x, msg.linear_acceleration.y])
+            self.car.a = math.sqrt(imudata_linear[0] ** 2 + imudata_linear[1] ** 2)
 
     def callbackstate(self, msg):
         self.ami_state = msg.ami_state
@@ -122,10 +134,20 @@ class EKF_Class(object):
     def path_slam_callback(self, msg):
         self.car.path = msg
 
+    def gps_params_callback(self,msg):
+        self.gps.LATITUD_0 = msg.x
+        self.gps.LONGITUD_0 = msg.y
+        self.gps.ALTURA_0 = msg.z
+
     def pose_slam_callback(self, msg):
         self.car.pose = msg
-        
+        self.car.x = [self.car.pose.pose.position.x, self.car.pose.pose.position.y]
+        self.car.yaw = self.car.pose.pose.orientation.z
+        self.pose_actualiced = True
 
+    def slam_callback(self, msg):
+        self.slam_end = msg.data
+        
 
 if __name__ == '__main__':
     rospy.init_node('EKF_node', anonymous=True)
@@ -135,15 +157,17 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
 
         # print(ekf_class.encendido)
-
+        print([ekf_class.car.v, ekf_class.car.x])
         if not ekf_class.encendido:
-            if ekf_class.ami_state == 14 and ekf_class.vuelta > 0 or ekf_class.ami_state != 14 and ekf_class.ami_state != 10:
+            if (ekf_class.ami_state == 14 and ekf_class.slam_end) or (ekf_class.ami_state != 14 and ekf_class.ami_state != 10):
+                print("Encendemos state estimation")
                 ekf_class.encendido = True
 
         if ekf_class.encendido:
+            print("Publica state estimation")
             ekf_class.path_pub.publish(ekf_class.car.path)
             ekf_class.pose_pub.publish(ekf_class.car.pose)
-            # ekf_class.control_for_slam_pub.publish(ekf_class.car.publish_control())
+            ekf_class.control_for_slam_pub.publish(ekf_class.car.publish_control())
             ekf_class.marker_array_pub.publish(ekf_class.car.marker_ests)
 
         rate.sleep()
